@@ -46,6 +46,7 @@ UA = ("Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) "
       "GH_QQConnect GameHelper_1006/2104130004")
 
 from desktop_storage import account_directory, read_json
+from activity_http import AssistantAuthError, ensure_success
 
 SESS_FILE = str(account_directory() / "session.json")
 
@@ -134,7 +135,12 @@ def call(method: str, path: str, extra: dict | None = None) -> dict:
                                      headers=headers)
 
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+        result = json.loads(resp.read().decode())
+    if not isinstance(result, dict):
+        raise ValueError("编年接口响应格式已变化")
+    if any(str(result.get(key)) == "-30003" for key in ("returnCode", "result", "code")):
+        raise AssistantAuthError("助手登录已过期，请右键账户选择“扫码更新登录”")
+    return ensure_success(result)
 
 
 TASK_EXTRA = {

@@ -60,13 +60,14 @@ def run_worker(directory, action):
                     return code
                 sys.argv = ["login_new_account.py"]
                 return login_new_account.main()
-            if action not in ("run", "check"):
+            if action not in ("run", "check", "details"):
                 raise ValueError("不支持的操作")
             from activity_runner import run_activities
-            summary = run_activities(directory, check_only=action == "check")
+            summary = run_activities(directory, check_only=action != "run", details_only=action == "details")
             # 接口明细可能回显凭证，结果与日志一样作为敏感文件保存。
             write_json(directory / "result.json", summary, secret=True)
-            print(f"经验：{summary.get('exp_total')}，等级：{summary.get('level', '未知')}")
+            if action != "details":
+                print(f"经验：{summary.get('exp_total')}，等级：{summary.get('level', '未知')}")
             for pending in summary["pending"]:
                 print(pending)
             return 1 if summary["pending"] else 0

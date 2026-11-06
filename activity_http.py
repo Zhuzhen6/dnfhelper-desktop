@@ -20,6 +20,10 @@ class ActivityError(Exception):
     """可以直接向用户展示的业务错误。"""
 
 
+class AssistantAuthError(ActivityError):
+    """助手登录已失效，需要重新扫码。"""
+
+
 def parse_json(text):
     text = text.strip()
     try:
@@ -95,13 +99,16 @@ class ActivityHttp:
         return ensure_success(parse_json(response.text))
 
 
-def run_step(summary, label, callback):
+def run_step(summary, label, callback, quiet_success=False):
     try:
         result = callback()
         summary["actions"].append({"action": label, "result": "完成"})
-        print(f"[{label}] 完成", flush=True)
+        if not quiet_success:
+            print(f"[{label}] 完成", flush=True)
         return result
     except (ActivityError, requests.RequestException, ValueError, KeyError, TypeError, IndexError, SystemExit) as error:
+        if isinstance(error, AssistantAuthError):
+            summary["auth_expired"] = True
         message = str(error) if isinstance(error, ActivityError) else f"{type(error).__name__}，请检查配置、网络或接口版本"
         summary["pending"].append(f"{label}：{message}")
         print(f"[{label}] {message}", flush=True)

@@ -7,10 +7,10 @@ DNF 助手 App「编年有礼」活动接口自动化。
 - [点击加入 QQ 群：DNF助手交流群](https://qm.qq.com/q/5yQlfQPCX)
 - [点击加入 TG 交流群](https://t.me/+KcwbvZdqOqU5YmZl)
 
-
 ## Windows 桌面版
 
 新增多账户管理、QQ 扫码窗口、手动执行、每日定时和任务日志。
+v0.3.0 更新紧凑账户工作台、勾选批量操作、右键菜单、双方任务详情、重复扫码更新账户以及软件内检查更新。点击账户自动只读刷新详情，成功时不输出日志。顶部扫码添加，底部显示版本及 QQ / TG 交流群。Gitee 更新源已配置，尚无版本文件与附件，目前回退 GitHub。
 v0.2.0 增加当前有效的道聚城、官网活动、论坛、小酱油、心悦和编年史补充功能；按账户配置活动与授权，过期活动自动隐藏。见 [活动配置指南](ACTIVITY_GUIDE.md) 与 [来源署名](THIRD_PARTY_NOTICES.md)。
 在 Windows 安装 Python 3.12 x64 后双击 `build_windows.bat`，输出 `dist/DNFHelperDesktop.exe`。
 具体使用、数据保护和定时规则见 [桌面版说明](DESKTOP.md)。

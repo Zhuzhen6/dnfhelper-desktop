@@ -41,6 +41,21 @@ jobs:
           from activity_daoju import DaojuActivity
           from activity_http import ActivityHttp, require_cookie_identity
           from datetime import datetime
+          from unittest.mock import patch
+          from desktop_update_install import apply_update
+          from desktop_update import gitee_repository, VERSION
+          assert VERSION == '0.3.0'
+          assert gitee_repository() == 'sweetzz/dnfzhu-shi-ou'
+          with tempfile.TemporaryDirectory() as folder:
+              target = Path(folder) / 'DNFHelperDesktop.exe'
+              downloaded = Path(folder) / 'download.exe'
+              target.write_bytes(b'MZ-old')
+              downloaded.write_bytes(b'MZ-new')
+              with patch('desktop_update_install.subprocess.Popen') as restart:
+                  assert apply_update(0, target, downloaded) == 0
+                  assert target.read_bytes() == b'MZ-new'
+                  assert target.with_suffix('.exe.previous').read_bytes() == b'MZ-old'
+                  assert restart.call_count == 1
           assert compileall.compile_dir('.', quiet=1, rx=__import__('re').compile(r'[/\\]\.git[/\\]'))
           with tempfile.TemporaryDirectory() as folder:
               path = Path(folder) / 'session.json'
@@ -66,13 +81,16 @@ jobs:
           with tempfile.TemporaryDirectory() as folder:
               directory = Path(folder)
               app = DesktopApp(root, directory, [])
+              assert not hasattr(app, 'stop_button')
+              assert not hasattr(app, 'check_button')
+              assert len(app.details.tasks['columns']) == 5
               show_activity_dialog(root, directory, '离线界面检查')
               root.update()
               assert len(root.winfo_children()) > 1
           root.destroy()
           print('语法、Tk 和 Windows DPAPI 检查通过')
       - name: 生成单文件 exe
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests --collect-all tzdata desktop.py
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests --collect-all tzdata --add-data "update_sources.json;." desktop.py
       - name: 检查 exe 窗口启动
         shell: pwsh
         run: |

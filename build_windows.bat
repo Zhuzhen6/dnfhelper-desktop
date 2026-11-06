@@ -13,7 +13,7 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 .venv-windows\Scripts\python.exe -m compileall -q desktop.py desktop_app.py desktop_worker.py desktop_storage.py desktop_schedule.py
 if errorlevel 1 goto failed
-.venv-windows\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests --collect-all tzdata desktop.py
+.venv-windows\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests --collect-all tzdata --add-data "update_sources.json;." desktop.py
 if errorlevel 1 goto failed
 copy /y LICENSE dist\LICENSE.txt >nul
 copy /y DESKTOP.md dist\DESKTOP.md >nul
