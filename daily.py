@@ -20,7 +20,8 @@
   043 浏览1篇内容   /moment/detail 真开一篇动态 → 状态翻 2 → claim
   045 进圈子详情页  circle/detail + momentlist → 状态翻 2 → claim
   047 浏览话题      脏数据，claim 报 -70007，跳过
-  009 / 005         需游戏服侧真实事件（通关/登录），接口层面无法替代
+  009               尝试领取，由服务端校验游戏通关条件
+  005               需游戏服侧真实登录事件
 
 用法
 ----
@@ -38,7 +39,6 @@ import native_client as nc
 # 不可能用接口完成的任务：actionId -> 原因
 SKIP_TASKS = {
     "047": "非法任务（-70007，App 也不显示）",
-    "009": "需真实进游戏通关地下城",
     "005": "需登录游戏",
 }
 
@@ -174,6 +174,9 @@ def run(check_only: bool = False) -> dict:
                 if aid == "001":
                     # 服务端对 001 不校验完成状态，0 也能直接领
                     log("claim-task-001", pc.claim_task("001"))
+                elif aid == "009":
+                    # 由领奖接口校验真实通关条件，不用浏览上报替代游戏行为。
+                    log("claim-task-009", pc.claim_task("009"))
                 elif aid == "008":
                     rep = pc.report_action("008")
                     log("report-action-008", rep)

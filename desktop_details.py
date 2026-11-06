@@ -6,6 +6,18 @@ from activity_config import load_config
 from activity_tasks import activity_task_rows
 
 
+def snapshot_signature(directory):
+    """原子替换后的文件元数据变化才重新读取和解密。"""
+    values = []
+    for filename in ("session.json", "result.json", "activity_settings.json"):
+        try:
+            metadata = (directory / filename).stat()
+            values.append((metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_size, metadata.st_ino))
+        except OSError:
+            values.append(None)
+    return tuple(values)
+
+
 def read_account_snapshot(directory):
     """只读取本机保存的信息，切换账户时不触发网络请求。"""
     values = []
@@ -20,6 +32,7 @@ def read_account_snapshot(directory):
 
 class AccountDetails:
     def __init__(self, parent):
+        self.display_signature = None
         self.frame = ttk.Frame(parent, style="Panel.TFrame", padding=16)
         ttk.Label(self.frame, text="账户详情", style="Section.TLabel").pack(anchor="w")
         self.identity = StringVar(value="选择一个账户，查看角色与任务结果。")
@@ -49,6 +62,12 @@ class AccountDetails:
         self.tasks.pack(fill="both", expand=True)
 
     def show(self, account, directory=None):
+        signature = (tuple(sorted(account.items())), snapshot_signature(directory)) if account else None
+        if signature == self.display_signature:
+            return
+        self.display_signature = signature
+        expanded = {self.tasks.item(group, "text"): self.tasks.item(group, "open")
+                    for group in self.tasks.get_children()}
         self.tasks.delete(*self.tasks.get_children())
         if account is None:
             self.identity.set("选择一个账户，查看角色与任务结果。")
@@ -71,7 +90,7 @@ class AccountDetails:
             for values in rows:
                 status = values[2]
                 if status == "活动":
-                    group = self.tasks.insert("", "end", text=values[0], open=True,
+                    group = self.tasks.insert("", "end", text=values[0], open=expanded.get(values[0], True),
                                               tags=("activity",), values=("", "", "", ""))
                     continue
                 tag = "done" if status in ("已领取", "完成") else "pending" if status in ("待领取", "待处理") else "unfinished"

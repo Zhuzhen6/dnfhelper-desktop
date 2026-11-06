@@ -51,7 +51,7 @@ def show_update_dialog(app):
         if os.name != "nt" or not getattr(sys, "frozen", False):
             webbrowser.open(RELEASES_URL)
             return
-        if app.process or app.queue:
+        if app.current or app.process or app.queue:
             messagebox.showinfo("任务进行中", "请等待任务结束或停止任务后更新。", parent=window)
             return
         if not messagebox.askyesno("安装更新", "下载并校验后将关闭程序、替换 exe 并重新启动。账户和配置会保留。现在更新？", parent=window):

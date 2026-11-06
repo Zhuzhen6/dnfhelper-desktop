@@ -43,7 +43,7 @@ jobs:
           from unittest.mock import patch
           from desktop_update_install import apply_update
           from desktop_update import gitee_repository, VERSION
-          assert VERSION == '0.4.0'
+          assert VERSION == '0.4.1'
           assert gitee_repository() == 'sweetzz/dnfzhu-shi-ou'
           with tempfile.TemporaryDirectory() as folder:
               target = Path(folder) / 'DNFHelperDesktop.exe'
@@ -75,6 +75,34 @@ jobs:
           assert not {'daoju', 'xiaoyue', 'forum', 'xinyue', 'xinyue_app'} & ACTIVITIES.keys()
           rows = activity_task_rows({**default_config(), 'enabled': ['recall']}, {})
           assert any(row[0] == '回流资格奖励' for row in rows)
+          from concurrent.futures import ThreadPoolExecutor
+          from time import sleep, perf_counter
+          from collections import deque
+          from unittest.mock import Mock
+          from desktop_app import DesktopApp
+          application = DesktopApp.__new__(DesktopApp)
+          application.current = application.process = None
+          application.closing = False
+          account = {'id': 'a' * 32, 'name': '离线性能检查', 'enabled': False, 'time': '09:00'}
+          application.queue = deque([(account, 'run')])
+          application.worker_launcher = ThreadPoolExecutor(max_workers=1)
+          application.account_path = Mock(return_value=Path('.'))
+          application.refresh = Mock()
+          application.log = Mock()
+          application.statuses = {}
+          process = Mock()
+          def delayed_launch(*args):
+              sleep(0.5)
+              return process
+          with patch('desktop_app.launch_worker', side_effect=delayed_launch):
+              started = perf_counter()
+              application.start_next()
+              assert perf_counter() - started < 0.25
+              application.cancelled = True
+              application.launch_future.result(timeout=5)
+              application.poll_worker_launch()
+              process.terminate.assert_called_once()
+          application.worker_launcher.shutdown()
           root = tk.Tk()
           root.withdraw()
           from desktop_app import DesktopApp

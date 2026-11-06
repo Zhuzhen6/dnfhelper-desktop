@@ -12,6 +12,7 @@ class SafeOutput:
     def __init__(self, stream, directory):
         self.stream = stream
         self.directory = directory
+        self.redaction_cache = {}
 
     def write(self, message):
         message = re.sub(r"https?://[^\s\"'<>]+", "[接口地址已隐藏]", message)
@@ -30,7 +31,14 @@ class SafeOutput:
                 message = message.replace(value, "[已隐藏]")
         for filename in ("session.json", "activity_settings.json"):
             try:
-                redact(read_json(self.directory / filename))
+                path = self.directory / filename
+                metadata = path.stat()
+                signature = (metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_size, metadata.st_ino)
+                cached = self.redaction_cache.get(filename)
+                if cached is None or cached[0] != signature:
+                    cached = (signature, read_json(path))
+                    self.redaction_cache[filename] = cached
+                redact(cached[1])
             except (OSError, ValueError):
                 pass
         self.stream.write(message)

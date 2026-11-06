@@ -9,17 +9,19 @@ import tkinter as tk
 import uuid
 import webbrowser
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from desktop_schedule import is_due, validate_time
-from desktop_storage import atomic_write, data_directory, read_json, write_json
+from desktop_storage import data_directory, read_json, write_json
 from desktop_theme import COLORS, apply_theme, create_checkbox_images, fit_table_columns, style_log
-from desktop_details import AccountDetails, read_account_snapshot
+from desktop_details import AccountDetails, read_account_snapshot, snapshot_signature
 from activity_dialog import show_activity_dialog
 from activity_config import load_config
+from desktop_process import launch_worker
 
 
 def load_accounts(path):
@@ -60,6 +62,11 @@ class DesktopApp:
         self.checked_accounts = set()
         self.updating = False
         self.details_requested_at = {}
+        self.selected_identifier = None
+        self.account_snapshots = {}
+        self.closing = False
+        self.worker_launcher = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dnf-launch")
+        self.launch_future = None
         root.title("DNF 助手 · 多账户任务")
         root.geometry("1480x900")
         root.minsize(1240, 800)
@@ -155,26 +162,41 @@ class DesktopApp:
         write_json(self.directory / "accounts.json", self.accounts)
 
     def refresh(self):
-        selected = self.tree.selection()
         self.checked_accounts.intersection_update(account["id"] for account in self.accounts)
-        self.tree.delete(*self.tree.get_children())
+        identifiers = {account["id"] for account in self.accounts}
+        for identifier in self.tree.get_children():
+            if identifier not in identifiers:
+                self.tree.delete(identifier)
+                self.account_snapshots.pop(identifier, None)
         for index, account in enumerate(self.accounts):
-            session, result = read_account_snapshot(self.account_path(account))
-            try:
-                settings = load_config(self.account_path(account))
-                web_login = "已授权" if settings["web_cookie"] else "未授权"
-            except (OSError, ValueError):
-                web_login = "读取失败"
+            directory = self.account_path(account)
+            signature = snapshot_signature(directory)
+            cached = self.account_snapshots.get(account["id"])
+            if cached is None or cached[0] != signature:
+                session, result = read_account_snapshot(directory)
+                try:
+                    settings = load_config(directory)
+                    web_login = "已授权" if settings["web_cookie"] else "未授权"
+                except (OSError, ValueError):
+                    web_login = "读取失败"
+                self.account_snapshots[account["id"]] = (signature, session, result, web_login)
+            else:
+                _, session, result, web_login = cached
             assistant_login = "已失效" if result.get("auth_expired") else "已登录" if all(session.get(key) for key in ("uin", "userId", "token")) else "未登录"
             tasks = result.get("tasks", [])
             completion = f"{sum(task.get('my_status') == '已领取' for task in tasks)}/{len(tasks)}" if "tasks" in result else "待查询"
-            self.tree.insert("", "end", iid=account["id"], image=self.checkbox_images[account["id"] in self.checked_accounts],
-                             tags=("even" if index % 2 == 0 else "odd",), values=(
+            values = (
                 account["name"], session.get("uin") or "未登录", session.get("roleName") or "待同步",
                 result.get("level") or "—", result.get("exp_total") if result.get("exp_total") is not None else "—",
                 completion, assistant_login, web_login, account["time"] if account["enabled"] else "未启用",
-                self.statuses.get(account["id"], "登录已过期" if result.get("auth_expired") else "待执行" if session else "请扫码登录")))
-        self.tree.selection_set([identifier for identifier in selected if self.tree.exists(identifier)])
+                self.statuses.get(account["id"], "登录已过期" if result.get("auth_expired") else "待执行" if session else "请扫码登录"))
+            identifier = account["id"]
+            if self.tree.exists(identifier):
+                if tuple(self.tree.item(identifier, "values")) != tuple(str(value) for value in values):
+                    self.tree.item(identifier, values=values)
+            else:
+                self.tree.insert("", "end", iid=identifier, image=self.checkbox_images[identifier in self.checked_accounts],
+                                 tags=("even" if index % 2 == 0 else "odd",), values=values)
         self.tree.tag_configure("even", background=COLORS["surface"])
         self.tree.tag_configure("odd", background="#F7F7F9")
         self.overview.set(f"{len(self.accounts)} 个账户，{sum(account['enabled'] for account in self.accounts)} 个已开启每日定时")
@@ -196,8 +218,12 @@ class DesktopApp:
         self.run_button.configure(state="normal" if count else "disabled")
 
     def update_selection(self, event=None):
-        self.update_checked_controls()
         selected = self.selected_accounts()
+        identifier = selected[0]["id"] if len(selected) == 1 else None
+        if event is not None and identifier == self.selected_identifier:
+            return
+        self.selected_identifier = identifier
+        self.update_checked_controls()
         account = selected[0] if len(selected) == 1 else None
         self.details.show(account, self.account_path(account) if account else None)
         if event is not None and account and not self.updating and not self.is_busy(account):
@@ -477,43 +503,55 @@ class DesktopApp:
         self.refresh()
 
     def start_next(self):
-        if self.process or not self.queue:
+        if self.current or self.process or not self.queue or self.closing:
             return
         account, action = self.queue.popleft()
-        path = self.account_path(account)
         try:
-            path.mkdir(parents=True, exist_ok=True)
-            atomic_write(path / "current.log", b"")
-            (path / "qr_login.png").unlink(missing_ok=True)
             if action == "run" and is_due(account, datetime.now()):
                 account["last_scheduled"] = datetime.now().date().isoformat()
                 self.persist()
-            arguments = [sys.executable]
-            if not getattr(sys, "frozen", False):
-                arguments.append(str(Path(__file__).with_name("desktop.py")))
-            arguments += ["--worker", str(path), action]
-            options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-            self.process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL,
-                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
             self.current = (account, action)
             self.started = time.monotonic()
             self.offset = 0
             self.cancelled = False
+            self.launch_future = self.worker_launcher.submit(launch_worker, self.account_path(account), action)
             if action != "details":
+                self.statuses[account["id"]] = "正在启动"
+            self.refresh()
+        except (OSError, RuntimeError) as error:
+            self.current = None
+            self.statuses[account["id"]] = "启动失败"
+            self.log(f"启动失败：{type(error).__name__}")
+            self.finish_account_addition(account, False)
+            self.refresh()
+
+    def poll_worker_launch(self):
+        """仅接收已完成的后台启动结果，取消后立即终止迟到的进程。"""
+        if self.launch_future is None or not self.launch_future.done():
+            return
+        future, self.launch_future = self.launch_future, None
+        account, action = self.current
+        try:
+            self.process = future.result()
+            if self.cancelled or self.closing:
+                self.process.terminate()
+            elif action != "details":
                 self.statuses[account["id"]] = {"login": "等待扫码", "run": "执行中", "check": "检查中"}[action]
                 self.log(f"{account['name']}：{self.statuses[account['id']]}")
         except OSError as error:
+            self.process = self.current = None
             self.statuses[account["id"]] = "启动失败"
-            self.log(f"启动失败：{error}")
+            self.log(f"启动失败：{type(error).__name__}")
             self.finish_account_addition(account, False)
-        self.refresh()
+        if not self.closing:
+            self.refresh()
 
     def read_output(self):
         path = self.account_path(self.current[0]) / "current.log"
         try:
             with path.open("rb") as stream:
                 stream.seek(self.offset)
-                content = stream.read()
+                content = stream.read(64 * 1024)
             # 只消费完整行，防止拆开 UTF-8 汉字。
             end = content.rfind(b"\n") + 1
             if end:
@@ -542,7 +580,10 @@ class DesktopApp:
         window.protocol("WM_DELETE_WINDOW", self.stop)
 
     def tick(self):
+        if self.closing:
+            return
         try:
+            self.poll_worker_launch()
             if self.process:
                 self.read_output()
                 self.show_qr()
@@ -607,8 +648,9 @@ class DesktopApp:
             if account["enabled"]:
                 account["last_scheduled"] = datetime.now().date().isoformat()
         self.queue.clear()
-        if self.process and self.process.poll() is None:
+        if self.current:
             self.cancelled = True
+        if self.process and self.process.poll() is None:
             self.process.terminate()
         try:
             self.persist()
@@ -617,22 +659,38 @@ class DesktopApp:
         self.refresh()
 
     def close(self):
+        if self.closing:
+            return
         if self.updating:
             messagebox.showinfo("正在更新", "请等待下载和校验完成。", parent=self.root)
             return
-        if self.process or self.queue or any(account["enabled"] for account in self.accounts):
+        if self.current or self.process or self.queue or any(account["enabled"] for account in self.accounts):
             if not messagebox.askyesno("退出程序", "退出会停止当前任务与后续定时。需要后台运行时请选择最小化。确定退出？", parent=self.root):
                 return
         self.stop()
+        self.closing = True
+        self.close_deadline = time.monotonic() + 3
+        self.finish_close()
+
+    def finish_close(self):
+        """退出时轮询子进程，避免主线程 wait 使窗口未响应。"""
+        self.poll_worker_launch()
+        if self.launch_future is not None:
+            self.root.after(100, self.finish_close)
+            return
         if self.process:
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+            if self.process.poll() is None:
+                if time.monotonic() >= self.close_deadline:
+                    try:
+                        self.process.kill()
+                    except OSError:
+                        pass
+                self.root.after(100, self.finish_close)
+                return
             for filename in ("qq_oauth.json", "qr_state.json", "qr_login.png"):
                 (self.account_path(self.current[0]) / filename).unlink(missing_ok=True)
             self.finish_account_addition(self.current[0], False)
+        self.worker_launcher.shutdown(wait=False)
         self.root.destroy()
 
 
