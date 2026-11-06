@@ -1,0 +1,85 @@
+name: Windows 单文件打包
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v4
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-desktop.txt
+      - name: 安装依赖
+        run: python -m pip install -r requirements-desktop.txt
+      - name: 检查语法与 Windows 凭证存储
+        shell: python
+        run: |
+          import compileall
+          import tempfile
+          import sys
+          from pathlib import Path
+          import tkinter as tk
+          sys.path.insert(0, str(Path.cwd()))
+          from desktop_storage import read_json, write_json
+          assert compileall.compile_dir('.', quiet=1, rx=__import__('re').compile(r'[/\\]\.git[/\\]'))
+          with tempfile.TemporaryDirectory() as folder:
+              path = Path(folder) / 'session.json'
+              session = {'userId': '100', 'uin': '200', 'token': 'offline-placeholder'}
+              write_json(path, session, secret=True)
+              assert path.read_bytes().startswith(b'DPAPI\n')
+              assert b'offline-placeholder' not in path.read_bytes()
+              assert read_json(path) == session
+          root = tk.Tk()
+          root.withdraw()
+          root.destroy()
+          print('语法、Tk 和 Windows DPAPI 检查通过')
+      - name: 生成单文件 exe
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests desktop.py
+      - name: 检查 exe 窗口启动
+        shell: pwsh
+        run: |
+          $application = Start-Process -FilePath .\dist\DNFHelperDesktop.exe -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Seconds 1
+              $windows = Get-Process -Name DNFHelperDesktop -ErrorAction SilentlyContinue
+              if ($windows | Where-Object { $_.MainWindowTitle -like 'DNF*' }) {
+                $ready = $true
+                break
+              }
+              if ($application.HasExited) {
+                throw 'exe 提前退出'
+              }
+            }
+            if (-not $ready) { throw 'exe 未在 30 秒内显示桌面窗口' }
+            Write-Output 'exe 桌面窗口启动通过'
+          } finally {
+            Get-Process -Name DNFHelperDesktop -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
+          Copy-Item LICENSE dist\LICENSE.txt
+          Copy-Item DESKTOP.md dist\DESKTOP.md
+          Get-FileHash dist\DNFHelperDesktop.exe -Algorithm SHA256 | Format-List
+      - name: 保存打包产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNFHelperDesktop-Windows-x64
+          path: |
+            dist/DNFHelperDesktop.exe
+            dist/LICENSE.txt
+            dist/DESKTOP.md
+          if-no-files-found: error
+          retention-days: 14

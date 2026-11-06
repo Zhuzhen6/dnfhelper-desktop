@@ -1,0 +1,72 @@
+"""每次操作独立进程，隔离上游模块的账户级全局状态。"""
+import os
+import re
+import sys
+from pathlib import Path
+
+from desktop_storage import read_json, write_json
+
+
+class SafeOutput:
+    """过滤接口 URL 和凭证，日志中保留任务结果。"""
+    def __init__(self, stream, directory):
+        self.stream = stream
+        self.directory = directory
+
+    def write(self, message):
+        message = re.sub(r"https?://[^\s\"'<>]+", "[接口地址已隐藏]", message)
+        message = re.sub(
+            r"(?i)((?:access_?token|token|openid|appOpenid|pay_token|pfkey|qrsig)"
+            r"[\"']?\s*[:=]\s*[\"']?)[^\s,\"'}]+", r"\1[已隐藏]", message)
+        try:
+            session = read_json(self.directory / "session.json")
+            for key in ("token", "accessToken", "appOpenid"):
+                value = str(session.get(key) or "")
+                if value:
+                    message = message.replace(value, "[已隐藏]")
+        except (OSError, ValueError):
+            pass
+        self.stream.write(message)
+        self.stream.flush()
+        return len(message)
+
+    def flush(self):
+        self.stream.flush()
+
+
+def run_worker(directory, action):
+    directory = Path(directory).resolve()
+    os.environ["DNFHELPER_ACCOUNT_DIR"] = str(directory)
+    with open(directory / "current.log", "w", encoding="utf-8", buffering=1) as stream:
+        sys.stdout = sys.stderr = SafeOutput(stream, directory)
+        try:
+            if action == "login":
+                import qq_login
+                import login_new_account
+                # 重新授权时清除旧身份，避免上游设备参数带入旧账户。
+                login_new_account.nc.S.clear()
+                login_new_account.nc._AUTH.clear()
+                sys.argv = ["qq_login.py", "qr"]
+                code = qq_login.main()
+                if code:
+                    return code
+                sys.argv = ["login_new_account.py"]
+                return login_new_account.main()
+            if action not in ("run", "check"):
+                raise ValueError("不支持的操作")
+            import daily
+            summary = daily.run(check_only=action == "check")
+            write_json(directory / "result.json", summary)
+            print(f"经验：{summary.get('exp_total')}，等级：{summary.get('level', '未知')}")
+            for pending in summary["pending"]:
+                print(pending)
+            return 1 if summary["pending"] else 0
+        except SystemExit as error:
+            print(f"操作未完成：{error}")
+            return 2
+        except Exception as error:
+            print(f"操作失败（{type(error).__name__}），请检查网络、登录态或活动接口版本。")
+            return 2
+        finally:
+            for filename in ("qq_oauth.json", "qr_state.json", "qr_login.png"):
+                (directory / filename).unlink(missing_ok=True)
