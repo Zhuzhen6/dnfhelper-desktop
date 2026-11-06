@@ -270,15 +270,12 @@ class DesktopApp:
         self.tree.focus_set()
         self.update_selection()
         menu = tk.Menu(self.tree, tearoff=False)
-        for label, action in (("执行此账户", "run"), ("检查此账户任务", "check")):
-            menu.add_command(label=label, command=lambda action=action: self.run_account_menu_action(identifier, action))
+        menu.add_command(label="执行此账户", command=lambda: self.run_account_menu_action(identifier, "run"))
         menu.add_separator()
         for label, action in (("活动配置", "activities"), ("备注与定时", "edit"),
                               ("扫码更新登录", "login")):
             menu.add_command(label=label, command=lambda action=action: self.run_account_menu_action(identifier, action))
         menu.add_separator()
-        menu.add_command(label="取消勾选" if identifier in self.checked_accounts else "勾选此账户",
-                         command=lambda: self.toggle_checked(identifier))
         menu.add_command(label="删除此账户…", command=lambda: self.run_account_menu_action(identifier, "delete"))
         try:
             menu.tk_popup(x, y)
