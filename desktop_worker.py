@@ -44,6 +44,7 @@ class SafeOutput:
 def run_worker(directory, action):
     directory = Path(directory).resolve()
     os.environ["DNFHELPER_ACCOUNT_DIR"] = str(directory)
+    original_stdout, original_stderr = sys.stdout, sys.stderr
     with open(directory / "current.log", "w", encoding="utf-8", buffering=1) as stream:
         sys.stdout = sys.stderr = SafeOutput(stream, directory)
         try:
@@ -76,5 +77,7 @@ def run_worker(directory, action):
             print(f"操作失败（{type(error).__name__}），请检查网络、登录态或活动接口版本。")
             return 2
         finally:
+            # 解释器退出时仍会刷新标准流，不能让它指向已关闭的日志。
+            sys.stdout, sys.stderr = original_stdout, original_stderr
             for filename in ("qq_oauth.json", "qr_state.json", "qr_login.png"):
                 (directory / filename).unlink(missing_ok=True)
