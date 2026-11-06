@@ -2,6 +2,12 @@
 
 DNF 助手 App「编年有礼」活动接口自动化。
 
+## 交流与反馈
+
+- [点击加入 QQ 群：DNF助手交流群](https://qm.qq.com/q/5yQlfQPCX)
+- [点击加入 TG 交流群](https://t.me/+KcwbvZdqOqU5YmZl)
+
+
 ## Windows 桌面版
 
 新增多账户管理、QQ 扫码窗口、手动执行、每日定时和任务日志。
