@@ -8,12 +8,7 @@ from urllib.parse import urlparse
 import requests
 
 
-ALLOWED_HOSTS = {
-    "comm.ams.game.qq.com", "djcapp.game.qq.com", "apps.game.qq.com",
-    "app.daoju.qq.com", "dzhu.qq.com", "dnf.gamebbs.qq.com",
-    "user.game.qq.com", "xyapi.game.qq.com", "tool.helper.qq.com",
-    "agw.xinyue.qq.com", "a.xinyue.qq.com", "bgw.xinyue.qq.com",
-}
+ALLOWED_HOSTS = {"comm.ams.game.qq.com", "dzhu.qq.com"}
 
 
 class ActivityError(Exception):
@@ -101,10 +96,12 @@ class ActivityHttp:
 
 def run_step(summary, label, callback, quiet_success=False):
     try:
+        pending_before = len(summary["pending"])
         result = callback()
-        summary["actions"].append({"action": label, "result": "完成"})
+        status = "待处理" if len(summary["pending"]) > pending_before else "完成"
+        summary["actions"].append({"action": label, "result": status})
         if not quiet_success:
-            print(f"[{label}] 完成", flush=True)
+            print(f"[{label}] {status}", flush=True)
         return result
     except (ActivityError, requests.RequestException, ValueError, KeyError, TypeError, IndexError, SystemExit) as error:
         if isinstance(error, AssistantAuthError):

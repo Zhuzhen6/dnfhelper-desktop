@@ -25,3 +25,12 @@ Thumbs.db
 build/
 dist/
 *.spec
+
+# 本地代码索引与账户数据
+.codegraph/
+accounts/
+accounts.json
+activity_settings.json
+activities.json
+result.json
+current.log

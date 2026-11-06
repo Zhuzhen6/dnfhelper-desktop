@@ -8,11 +8,11 @@ def run_assistant_event(http, session, config, summary, check_only):
         payload = {"r": f"activitytpl/{action}", "activityId": "10085", "source": "dz", "from": "tpl",
                    "cCurrentGameId": "10014", "uin": session["uin"], "userId": session["userId"],
                    "token": session["token"], "serverId": session.get("sPartition", ""),
-                   "areaId": config.get("area_id") or session.get("areaId", ""), "originalRoleId": session.get("sRoleId", ""),
+                   "areaId": session.get("areaId", ""), "originalRoleId": session.get("sRoleId", ""),
                    "cGameId": "1006", "cClientVersionCode": "2103080309",
                    "getNavUaStr": "GameHelper GameHelper_1006/2103080309", **extra}
         if not payload["originalRoleId"] or not payload["serverId"] or not payload["areaId"]:
-            raise ActivityError("助手活动缺少角色或 area_id，请先设置活动参数")
+            raise ActivityError("助手活动缺少角色或 area_id，请重新扫码登录助手以获取角色区域")
         return http.json("POST", "https://dzhu.qq.com/zangyi/activity/act", data=payload)["data"]
 
     def step(name, action, **extra):
@@ -29,7 +29,13 @@ def run_assistant_event(http, session, config, summary, check_only):
         if int(task["status"]) == 2:
             continue
         if int(task["status"]) == 0:
-            step(f"完成活动任务 {task['title']}", "task/done", taskId=task["id"])
+            if any(word in task["title"] for word in ("疲劳", "通关", "在线", "游戏登录")):
+                message = f"{task['title']}：需在游戏内完成，已跳过完成和领奖请求"
+                summary["pending"].append(message)
+                print(message, flush=True)
+                continue
+            if step(f"完成活动任务 {task['title']}", "task/done", taskId=task["id"]) is None:
+                continue
         step(f"领取活动任务 {task['title']}", "task/pickupReward", taskId=task["id"])
     today = beijing_now().strftime("%Y-%m-%d")
     status = step("查询活动签到状态", "checkin/data")

@@ -10,8 +10,9 @@ DNF 助手 App「编年有礼」活动接口自动化。
 ## Windows 桌面版
 
 新增多账户管理、QQ 扫码窗口、手动执行、每日定时和任务日志。
-v0.3.0 更新紧凑账户工作台、勾选批量操作、右键菜单、双方任务详情、重复扫码更新账户以及软件内检查更新。点击账户自动只读刷新详情，成功时不输出日志。顶部扫码添加，底部显示版本及 QQ / TG 交流群。Gitee 更新源已配置，尚无版本文件与附件，目前回退 GitHub。
-v0.2.0 增加当前有效的道聚城、官网活动、论坛、小酱油、心悦和编年史补充功能；按账户配置活动与授权，过期活动自动隐藏。见 [活动配置指南](ACTIVITY_GUIDE.md) 与 [来源署名](THIRD_PARTY_NOTICES.md)。
+v0.4.0 提供双登录状态、网页登录扫码授权、活动全选与可折叠任务分组。当前保留编年有礼、米歇尔、井盖杯、官网落地页、回流引导和绑定手机六项活动，到期自动隐藏。官网活动按各自页面当前绑定角色领取。
+升级后需重新勾选活动，助手账户保留；Gitee 更新源尚未部署，当前回退 GitHub。
+详见 [活动配置指南](ACTIVITY_GUIDE.md) 与 [来源署名](THIRD_PARTY_NOTICES.md)。
 在 Windows 安装 Python 3.12 x64 后双击 `build_windows.bat`，输出 `dist/DNFHelperDesktop.exe`。
 具体使用、数据保护和定时规则见 [桌面版说明](DESKTOP.md)。
 
@@ -101,9 +102,7 @@ python native_client.py browse          # 模拟"浏览一篇动态"（043）
 | `native_client.py` | `api.dnfhelper.qq.com` 原生接口客户端 |
 | `login_new_account.py` | **登录入口**。`--qr` 一条龙，登录后自动填充角色字段 |
 | `qq_login.py` | QQ 扫码链实现（被上面调用，也可单独跑） |
-| `harvest_session.py` | 备用：从已有活动页 URL 恢复 `session.json` |
 | `NOTES.md` | **技术细节**：签名算法、接口表、错误码对照 |
-| `session.example.json` | 凭证模板 |
 
 ## 关于基础礼包
 

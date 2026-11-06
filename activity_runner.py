@@ -19,14 +19,14 @@ def run_activities(directory, check_only=False, details_only=False):
     summary = {"actions": [], "pending": [], "exp_total": None, "activities": []}
     catalog = available_activities()
     try:
-        for key in config["enabled"]:
-            if key not in catalog:
-                print("已跳过到期活动")
+        for key in catalog:
+            if key not in config["enabled"]:
                 continue
             name, _, url = catalog[key]
             if not details_only:
                 print(f"\n开始活动：{name}", flush=True)
             before = len(summary["pending"])
+            action_start = len(summary["actions"])
             def execute():
                 if key == "chronicle":
                     import daily
@@ -49,7 +49,7 @@ def run_activities(directory, check_only=False, details_only=False):
                         summary["pending"].extend(result["pending"])
                         summary["exp_total"] = result.get("exp_total")
                         summary["level"] = result.get("level")
-                    run_chronicle_extras(config, summary, check_only)
+                    run_chronicle_extras(summary, check_only)
                     # 补充领奖流程完成后重新查询，避免把领奖前状态作为最终结果。
                     tasks = run_step(summary, "刷新每日任务详情", daily.merged_tasks)
                     if tasks is not None:
@@ -61,22 +61,12 @@ def run_activities(directory, check_only=False, details_only=False):
                 elif key in ("phone", "landing", "jinggai", "recall"):
                     from activity_ide import IdeActivity
                     IdeActivity(http, key, url, session, config).run(summary, check_only)
-                elif key == "daoju":
-                    from activity_daoju import DaojuActivity
-                    DaojuActivity(http, session, config).run(summary, check_only)
-                elif key == "forum":
-                    from activity_forum import run_forum
-                    run_forum(http, config, summary, check_only)
-                elif key == "xiaoyue":
-                    from activity_xiaoyue import run_xiaoyue
-                    run_xiaoyue(http, session, config, summary, check_only)
-                elif key == "xinyue":
-                    from activity_xinyue import run_xinyue
-                    run_xinyue(http, session, config, summary, check_only)
-                elif key == "xinyue_app":
-                    from activity_xinyue import run_xinyue_app
-                    run_xinyue_app(http, config, summary, check_only)
             run_step(summary, "只读查询任务详情" if details_only else name, execute, quiet_success=details_only)
+            if not details_only:
+                records = [{"action": item["action"], "result": item["result"]}
+                           for item in summary["actions"][action_start:]]
+                records.extend({"action": message, "result": "待处理"} for message in summary["pending"][before:])
+                summary.setdefault("activity_tasks", {})[key] = records
             summary["activities"].append({"id": key, "name": name,
                                            "status": "有待处理项" if len(summary["pending"]) > before else "检查完成" if check_only else "执行完成"})
     finally:

@@ -28,7 +28,7 @@ class SafeOutput:
                     redact(nested, key)
             elif isinstance(value, str) and value and any(word in key.lower() for word in ("token", "cookie", "openid", "body_hex")):
                 message = message.replace(value, "[已隐藏]")
-        for filename in ("session.json", "activities.json"):
+        for filename in ("session.json", "activity_settings.json"):
             try:
                 redact(read_json(self.directory / filename))
             except (OSError, ValueError):
@@ -64,6 +64,12 @@ def run_worker(directory, action):
                 raise ValueError("不支持的操作")
             from activity_runner import run_activities
             summary = run_activities(directory, check_only=action != "run", details_only=action == "details")
+            if action == "details":
+                try:
+                    previous = read_json(directory / "result.json")
+                    summary["activity_tasks"] = previous.get("activity_tasks", {})
+                except (OSError, ValueError):
+                    pass
             # 接口明细可能回显凭证，结果与日志一样作为敏感文件保存。
             write_json(directory / "result.json", summary, secret=True)
             if action != "details":

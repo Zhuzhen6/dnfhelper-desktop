@@ -38,13 +38,12 @@ jobs:
           from desktop_storage import read_json, write_json
           from activity_config import default_config, validate_config
           from activity_catalog import available_activities
-          from activity_daoju import DaojuActivity
           from activity_http import ActivityHttp, require_cookie_identity
           from datetime import datetime
           from unittest.mock import patch
           from desktop_update_install import apply_update
           from desktop_update import gitee_repository, VERSION
-          assert VERSION == '0.3.0'
+          assert VERSION == '0.4.0'
           assert gitee_repository() == 'sweetzz/dnfzhu-shi-ou'
           with tempfile.TemporaryDirectory() as folder:
               target = Path(folder) / 'DNFHelperDesktop.exe'
@@ -65,15 +64,17 @@ jobs:
               assert b'offline-placeholder' not in path.read_bytes()
               assert read_json(path) == session
               config = validate_config(default_config())
-              write_json(Path(folder) / 'activities.json', config, secret=True)
-              assert read_json(Path(folder) / 'activities.json') == config
+              write_json(Path(folder) / 'activity_settings.json', config, secret=True)
+              assert read_json(Path(folder) / 'activity_settings.json') == config
           assert 'assistant_event' not in available_activities(datetime(2026, 11, 9))
           assert 'jinggai' not in available_activities(datetime(2026, 11, 16))
           require_cookie_identity('uin=o00100; skey=offline;', '100')
-          http = ActivityHttp()
-          config = {**default_config(), 'web_cookie': 'uin=o00100; skey=offline;'}
-          assert len(DaojuActivity(http, {'uin': '100'}, config).params()['sDjcSign']) == 512
-          http.session.close()
+          from activity_catalog import ACTIVITIES
+          from activity_tasks import activity_task_rows
+          assert len(ACTIVITIES) == 6
+          assert not {'daoju', 'xiaoyue', 'forum', 'xinyue', 'xinyue_app'} & ACTIVITIES.keys()
+          rows = activity_task_rows({**default_config(), 'enabled': ['recall']}, {})
+          assert any(row[0] == '回流资格奖励' for row in rows)
           root = tk.Tk()
           root.withdraw()
           from desktop_app import DesktopApp
@@ -83,7 +84,8 @@ jobs:
               app = DesktopApp(root, directory, [])
               assert not hasattr(app, 'stop_button')
               assert not hasattr(app, 'check_button')
-              assert len(app.details.tasks['columns']) == 5
+              assert len(app.details.tasks['columns']) == 4
+              assert 'assistant_login' in app.tree['columns'] and 'web_login' in app.tree['columns']
               show_activity_dialog(root, directory, '离线界面检查')
               root.update()
               assert len(root.winfo_children()) > 1

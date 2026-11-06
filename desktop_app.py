@@ -16,8 +16,10 @@ from tkinter.scrolledtext import ScrolledText
 
 from desktop_schedule import is_due, validate_time
 from desktop_storage import atomic_write, data_directory, read_json, write_json
-from desktop_theme import COLORS, apply_theme, fit_table_columns, style_log
+from desktop_theme import COLORS, apply_theme, create_checkbox_images, fit_table_columns, style_log
 from desktop_details import AccountDetails, read_account_snapshot
+from activity_dialog import show_activity_dialog
+from activity_config import load_config
 
 
 def load_accounts(path):
@@ -93,15 +95,15 @@ class DesktopApp:
         self.run_button.pack(side="right")
         self.select_all_button = ttk.Button(account_heading, text="全选", command=self.toggle_all_checked)
         self.select_all_button.pack(side="right", padx=6)
-        columns = ("name", "qq", "role", "level", "experience", "completion", "schedule", "status")
+        columns = ("name", "qq", "role", "level", "experience", "completion", "assistant_login", "web_login", "schedule", "status")
         table = ttk.Frame(account_panel, style="Surface.TFrame")
         table.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(table, columns=columns, show="tree headings", selectmode="browse", height=4)
         self.tree.column("#0", width=48, minwidth=48, stretch=False, anchor="center")
         self.tree.heading("#0", text="勾选", command=self.toggle_all_checked)
-        self.checkbox_images = self.create_checkbox_images()
-        for column, title, width in zip(columns, ("备注", "QQ", "角色", "编年", "经验", "任务", "定时", "状态"),
-                                        (95, 100, 105, 55, 60, 65, 65, 155)):
+        self.checkbox_images = create_checkbox_images(self.root)
+        for column, title, width in zip(columns, ("备注", "QQ", "角色", "编年", "经验", "任务", "助手登录", "网页授权", "定时", "状态"),
+                                        (95, 100, 105, 55, 60, 65, 90, 90, 65, 155)):
             self.tree.heading(column, text=title, anchor="w")
             self.tree.column(column, width=width, minwidth=36, anchor="w")
         fit_table_columns(self.tree)
@@ -158,13 +160,19 @@ class DesktopApp:
         self.tree.delete(*self.tree.get_children())
         for index, account in enumerate(self.accounts):
             session, result = read_account_snapshot(self.account_path(account))
+            try:
+                settings = load_config(self.account_path(account))
+                web_login = "已授权" if settings["web_cookie"] else "未授权"
+            except (OSError, ValueError):
+                web_login = "读取失败"
+            assistant_login = "已失效" if result.get("auth_expired") else "已登录" if all(session.get(key) for key in ("uin", "userId", "token")) else "未登录"
             tasks = result.get("tasks", [])
             completion = f"{sum(task.get('my_status') == '已领取' for task in tasks)}/{len(tasks)}" if "tasks" in result else "待查询"
             self.tree.insert("", "end", iid=account["id"], image=self.checkbox_images[account["id"] in self.checked_accounts],
                              tags=("even" if index % 2 == 0 else "odd",), values=(
                 account["name"], session.get("uin") or "未登录", session.get("roleName") or "待同步",
                 result.get("level") or "—", result.get("exp_total") if result.get("exp_total") is not None else "—",
-                completion, account["time"] if account["enabled"] else "未启用",
+                completion, assistant_login, web_login, account["time"] if account["enabled"] else "未启用",
                 self.statuses.get(account["id"], "登录已过期" if result.get("auth_expired") else "待执行" if session else "请扫码登录")))
         self.tree.selection_set([identifier for identifier in selected if self.tree.exists(identifier)])
         self.tree.tag_configure("even", background=COLORS["surface"])
@@ -199,19 +207,6 @@ class DesktopApp:
                 self.details_requested_at[identifier] = time.monotonic()
                 self.enqueue(account, "details")
 
-    def create_checkbox_images(self):
-        images = []
-        for checked in (False, True):
-            image = tk.PhotoImage(master=self.root, width=24, height=24)
-            border = COLORS["accent"] if checked else "#8B919A"
-            image.put(border, to=(2, 2, 22, 22))
-            image.put(COLORS["accent"] if checked else COLORS["surface"], to=(4, 4, 20, 20))
-            if checked:
-                for x, y in ((6, 11), (7, 12), (8, 13), (9, 14), (10, 13), (11, 12),
-                             (12, 11), (13, 10), (14, 9), (15, 8), (16, 7)):
-                    image.put("#FFFFFF", to=(x, y, x + 2, y + 3))
-            images.append(image)
-        return images
 
     def set_all_checked(self, checked):
         identifiers = {account["id"] for account in self.accounts} if checked else set()
@@ -265,10 +260,7 @@ class DesktopApp:
     def open_account_menu(self, identifier, x, y):
         if not self.tree.exists(identifier):
             return
-        self.tree.selection_set(identifier)
-        self.tree.focus(identifier)
-        self.tree.focus_set()
-        self.update_selection()
+        # 弹菜单不切换账户，避免同步读凭证、重建详情及触发自动查询。
         menu = tk.Menu(self.tree, tearoff=False)
         menu.add_command(label="执行此账户", command=lambda: self.run_account_menu_action(identifier, "run"))
         menu.add_separator()
@@ -287,11 +279,14 @@ class DesktopApp:
         account = next((account for account in self.accounts if account["id"] == identifier), None)
         if account is None:
             return
+        if action == "activities":
+            self.configure_activities(account)
+            return
         self.tree.selection_set(identifier)
-        if action in ("run", "check", "login"):
+        if action in ("run", "login"):
             self.enqueue(account, action)
             return
-        commands = {"activities": self.configure_activities, "edit": self.edit_account,
+        commands = {"edit": self.edit_account,
                     "delete": self.delete_account}
         commands[action]()
 
@@ -427,15 +422,14 @@ class DesktopApp:
         if account:
             self.account_dialog(account)
 
-    def configure_activities(self):
-        account = self.one_account()
+    def configure_activities(self, account=None):
+        account = account or self.one_account()
         if not account:
             return
         if self.is_busy(account):
             messagebox.showinfo("账户忙碌", "请等待任务结束或停止后再修改活动", parent=self.root)
             return
-        from activity_dialog import show_activity_dialog
-        show_activity_dialog(self.root, self.account_path(account), account["name"])
+        show_activity_dialog(self.root, self.account_path(account), account["name"], self.refresh)
 
     def delete_account(self):
         account = self.one_account()
@@ -459,16 +453,11 @@ class DesktopApp:
             messagebox.showerror("删除未完全成功", str(error), parent=self.root)
 
     def enqueue_selected(self, action):
-        accounts = (self.selected_accounts() if action == "login" else
-                    [account for account in self.accounts if account["id"] in self.checked_accounts])
+        accounts = [account for account in self.accounts if account["id"] in self.checked_accounts]
         if not accounts:
-            messagebox.showinfo("选择账户", "请先勾选要执行或检查的账户。", parent=self.root)
+            messagebox.showinfo("选择账户", "请先勾选要执行的账户。", parent=self.root)
         for account in accounts:
             self.enqueue(account, action)
-
-    def enqueue_all(self):
-        for account in self.accounts:
-            self.enqueue(account, "run")
 
     def enqueue(self, account, action):
         if self.updating:

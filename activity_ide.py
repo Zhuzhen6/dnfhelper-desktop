@@ -37,9 +37,8 @@ class IdeActivity:
         role = result.get("jData", {}).get("bindarea")
         if not isinstance(role, dict):
             raise ActivityError("请先在官方活动页绑定领奖角色")
-        if (str(role.get("Farea")) != str(self.session.get("sPartition"))
-                or str(role.get("FroleId")) != str(self.session.get("sRoleId"))):
-            raise ActivityError("活动领奖角色与助手所选角色不一致，请先在活动页调整")
+        if not role.get("Farea") or not role.get("FroleId"):
+            raise ActivityError("官方活动绑定信息不完整，请先在官方页面绑定领奖角色")
         return role
 
     def run(self, summary, check_only):
@@ -60,9 +59,6 @@ class IdeActivity:
                 step("领取首次绑定奖励", "415395")
             if int(value["isMonthDo"]) == 0:
                 step("领取本月积分", "415262")
-            index = self.config.get("phone_exchange_index", "")
-            if index != "":
-                step("兑换指定手机积分奖励", "415424", iIndex=str(index))
         elif self.key == "recall":
             step("记录回流指引浏览", "553425")
             step("领取回流指引奖励", "553424")

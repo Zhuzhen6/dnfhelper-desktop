@@ -1,111 +1,165 @@
-"""账户活动开关、独立凭证与高级兑换配置。"""
-import json
+"""仅通过扫码授权的账户活动选择。Created by 朱圳。"""
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
-from desktop_theme import COLORS, style_log
 
-from activity_catalog import available_activities
-from activity_config import load_config, save_config
+from activity_catalog import WEB_ACTIVITIES, available_activities
+from activity_config import load_config, save_config, save_web_authorization
+from desktop_storage import read_json
+from desktop_theme import COLORS, create_checkbox_images
 
 
-def show_activity_dialog(parent, directory, name):
+def show_activity_dialog(parent, directory, name, on_change=None):
     try:
         config = load_config(directory)
     except (ValueError, OSError) as error:
-        messagebox.showerror("读取失败", f"活动配置无法读取：{type(error).__name__}", parent=parent)
+        messagebox.showerror("读取失败", str(error), parent=parent)
         return
     window = tk.Toplevel(parent)
+    window.withdraw()
     window.title(f"活动配置 · {name}")
-    window.geometry("900x830")
-    window.minsize(820, 790)
+    window.geometry(f"820x{min(900, max(600, window.winfo_screenheight() - 100))}")
+    window.minsize(760, 600)
     window.configure(background=COLORS["background"])
     window.transient(parent)
     heading = ttk.Frame(window, padding=(24, 20, 24, 0))
     heading.pack(fill="x")
     ttk.Label(heading, text="活动配置", style="Title.TLabel").pack(side="left")
     ttk.Label(heading, text=name, style="Badge.TLabel").pack(side="right", pady=8)
-    ttk.Label(window, text="为这个账户选择任务，手动执行与每日定时共用以下设置。",
+    ttk.Label(window, text="勾选活动并保存，手动执行与每日定时共用以下设置。",
               style="Muted.TLabel").pack(anchor="w", padx=24, pady=(8, 16))
-    notebook = ttk.Notebook(window)
-    notebook.pack(fill="both", expand=True, padx=15, pady=12)
-    switches = ttk.Frame(notebook, padding=16, style="Surface.TFrame")
-    credentials = ttk.Frame(notebook, padding=16, style="Surface.TFrame")
-    advanced = ttk.Frame(notebook, padding=16, style="Surface.TFrame")
-    notebook.add(switches, text="活动选择")
-    notebook.add(credentials, text="授权与角色")
-    notebook.add(advanced, text="兑换与高级配置")
-    ttk.Label(switches, text="只展示当前有效活动，到期后自动隐藏并停止执行。", style="Hint.TLabel", wraplength=750).pack(anchor="w", pady=(0, 8))
+    footer = ttk.Frame(window, padding=(24, 12, 24, 16))
+    footer.pack(side="bottom", fill="x")
+    content = ttk.Frame(window)
+    content.pack(fill="both", expand=True, padx=16)
+    canvas = tk.Canvas(content, background=COLORS["background"], highlightthickness=0,
+                       borderwidth=0, yscrollincrement=20)
+    canvas.pack(side="left", fill="both", expand=True)
+    panel = ttk.Frame(canvas, padding=16, style="Panel.TFrame")
+    panel_item = canvas.create_window((0, 0), window=panel, anchor="nw")
+    panel.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(panel_item, width=event.width))
+
+    def scroll_content(event):
+        if canvas.yview() != (0.0, 1.0):
+            if getattr(event, "num", None) in (4, 5):
+                amount = -1 if event.num == 4 else 1
+            elif not event.delta:
+                return
+            else:
+                amount = -int(event.delta / 120) if abs(event.delta) >= 120 else (-1 if event.delta > 0 else 1)
+            canvas.yview_scroll(amount, "units")
+        return "break"
+
+    window.bind("<MouseWheel>", scroll_content)
+    window.bind("<Button-4>", scroll_content)
+    window.bind("<Button-5>", scroll_content)
+    def authorization_text():
+        if not config["web_cookie"]:
+            return "○ 未授权 · 官网类活动需扫码授权"
+        updated = config["web_authorized_at"]
+        return "✓ 网页已授权" + (f" · {updated}" if updated else " · 已保存")
+
+    authorization_status = tk.StringVar(value=authorization_text())
+    authorization = ttk.Frame(panel, style="Surface.TFrame")
+    authorization.pack(fill="x", pady=(0, 14))
+    authorization_label = ttk.Label(authorization, textvariable=authorization_status, style="Hint.TLabel",
+                                    foreground="#23834B" if config["web_cookie"] else COLORS["muted"])
+    authorization_label.pack(side="left")
+
+    def authorize_web():
+        try:
+            session = read_json(directory / "session.json")
+        except (ValueError, OSError):
+            session = {}
+        if not session.get("uin"):
+            messagebox.showinfo("请先登录", "请先为该账户扫码登录助手。", parent=window)
+            return
+        from activity_web_login import show_web_login
+
+        def received(cookie):
+            target, target_name = save_web_authorization(directory, cookie)
+            if target == directory:
+                config.update(load_config(target))
+                authorization_status.set(authorization_text())
+                authorization_label.configure(foreground="#23834B")
+            else:
+                authorization_status.set(authorization_text())
+            if on_change:
+                on_change()
+            window.after(100, lambda: messagebox.showinfo(
+                "扫码授权成功", f"已更新「{target_name}」的网页登录授权，已自动保存。", parent=window))
+
+        show_web_login(window, received)
+
+    ttk.Button(authorization, text="扫码授权", command=authorize_web).pack(side="right")
+    window.checkbox_images = create_checkbox_images(window)
     variables = {}
+    style = ttk.Style(window)
+    style.layout("Activity.TCheckbutton", [("Checkbutton.padding", {"sticky": "nswe", "children": [
+        ("Checkbutton.focus", {"sticky": "nswe", "children": [("Checkbutton.label", {"sticky": "nswe"})]})]})])
+
+    def checkbox(parent_frame, text, variable):
+        control = ttk.Checkbutton(parent_frame, text=text, variable=variable, compound="left")
+        # 保留键盘操作和焦点，只用首页图像替换系统小勾选框。
+        control.configure(style="Activity.TCheckbutton", image=(window.checkbox_images[0], "selected", window.checkbox_images[1]))
+        control.pack(side="left")
+        return control
+
+    selection_bar = ttk.Frame(panel, style="Surface.TFrame")
+    selection_bar.pack(fill="x", pady=(0, 8))
+    ttk.Label(selection_bar, text="活动选择", style="Section.TLabel").pack(side="left")
+
+    def update_select_all():
+        select_all.configure(text="取消全选" if variables and all(value.get() for value in variables.values()) else "全选")
+
+    def toggle_all():
+        checked = not all(value.get() for value in variables.values())
+        for value in variables.values():
+            value.set(checked)
+        update_select_all()
+
+    select_all = ttk.Button(selection_bar, text="全选", command=toggle_all)
+    select_all.pack(side="right")
     for key, (title, end, url) in available_activities().items():
-        row = ttk.Frame(switches, style="Surface.TFrame")
-        row.pack(fill="x", pady=0)
+        row = ttk.Frame(panel, style="Surface.TFrame")
+        row.pack(fill="x", pady=3)
         variables[key] = tk.BooleanVar(value=key in config["enabled"])
-        ttk.Checkbutton(row, text=title + (f"（至 {end[:10]}）" if end else "（长期）"), variable=variables[key]).pack(side="left")
+        checkbox(row, title, variables[key])
+        variables[key].trace_add("write", lambda *args: update_select_all())
         ttk.Button(row, text="官方页面", command=lambda url=url: webbrowser.open(url)).pack(side="right")
+        ttk.Label(row, text=f"至 {end[:10]}" if end else "长期", style="Hint.TLabel").pack(side="right", padx=10)
+    update_select_all()
+    ttk.Separator(panel).pack(fill="x", pady=12)
     lottery = tk.BooleanVar(value=config["lottery"])
     recheckin = tk.BooleanVar(value=config["recheckin"])
-    ttk.Checkbutton(switches, text="使用现有免费抽奖次数（米歇尔、落地页、心悦）", variable=lottery).pack(anchor="w", pady=(15, 4))
-    ttk.Checkbutton(switches, text="使用米歇尔活动可用补签次数", variable=recheckin).pack(anchor="w")
-    ttk.Label(switches, text="消耗碎片、聚豆、手机积分的兑换需在高级配置指定奖励。\n"
-              "领取前请先在各官方活动页绑定与助手相同的角色。", style="Hint.TLabel", wraplength=750).pack(anchor="w", pady=8)
-
-    credentials.columnconfigure(1, weight=1)
-    fields = {}
-    for row, (key, title) in enumerate((("web_cookie", "网页登录 Cookie（含 uin、skey）"),
-                                       ("forum_cookie", "DNF 论坛 Cookie"), ("area_id", "游戏区域 area_id（助手模板活动）"),
-                                       ("partner_user_id", "编年史固定搭档 userId（可留空）"))):
-        ttk.Label(credentials, text=title, style="Surface.TLabel").grid(row=row * 2, column=0, columnspan=2, sticky="w", pady=(8, 2))
-        variable = tk.StringVar(value=config[key])
-        fields[key] = variable
-        ttk.Entry(credentials, textvariable=variable, show="•" if "cookie" in key else "", width=70).grid(
-            row=row * 2 + 1, column=0, columnspan=2, sticky="ew")
-    oauth_fields = {}
-    for offset, (key, title) in enumerate((("daoju_oauth", "道聚城 1101958653"),
-                                         ("xinyue_oauth", "心悦特权 101478665"),
-                                         ("xinyue_app_oauth", "心悦 App 101484782"))):
-        row = 8 + offset * 2
-        ttk.Label(credentials, text=f"{title}：openid / access_token", style="Surface.TLabel").grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 2))
-        pair = [tk.StringVar(value=config[key].get(field, "")) for field in ("openid", "access_token")]
-        oauth_fields[key] = pair
-        for column, variable in enumerate(pair):
-            ttk.Entry(credentials, textvariable=variable, show="•", width=34).grid(row=row + 1, column=column, sticky="ew", padx=(0, 6))
-    ttk.Label(credentials, text="各应用授权不可混用。此处只在本机加密保存；不保存 QQ 密码。\n"
-              "Cookie 过期时需重新登录官方页面后更新；论坛 Cookie 请使用当前账户本人登录态。",
-              style="Hint.TLabel", wraplength=750).grid(row=14, column=0, columnspan=2, sticky="w", pady=12)
-
-    ttk.Label(advanced, text="JSON 高级配置；留空列表表示不兑换。具体规则见 ACTIVITY_GUIDE.md。\n"
-              "chronicle_exchange / daoju_exchange / xinyue_operations：[{\"id\":\"奖励或流程ID\",\"count\":1}]\n"
-              "phone_exchange_index：0～6 的字符串或空字符串；心悦 App 操作需 name、body_hex。",
-              style="Hint.TLabel", wraplength=750).pack(anchor="w", pady=(0, 10))
-    editor = ScrolledText(advanced, font=("Consolas", 11), height=20)
-    style_log(editor)
-    editor.pack(fill="both", expand=True)
-    keys = ("chronicle_exchange", "daoju_exchange", "xinyue_operations", "phone_exchange_index", "xinyue_app_operations",
-            "daoju_mobile_game", "daoju_wish")
-    editor.insert("1.0", json.dumps({key: config[key] for key in keys}, ensure_ascii=False, indent=2))
+    for text, variable in (("使用现有免费抽奖次数（米歇尔、落地页）", lottery),
+                           ("使用米歇尔活动可用补签次数", recheckin)):
+        row = ttk.Frame(panel, style="Surface.TFrame")
+        row.pack(fill="x", pady=2)
+        checkbox(row, text, variable)
+    ttk.Label(panel, text="区域与角色自动读取助手账户；活动到期后自动隐藏。\n"
+              "官网活动按官方页面当前绑定角色领奖；不满足资格的奖励会提示原因。",
+              style="Hint.TLabel", wraplength=710).pack(anchor="w", pady=(14, 0))
 
     def save():
+        selected = [key for key, variable in variables.items() if variable.get()]
+        if WEB_ACTIVITIES.intersection(selected) and not config["web_cookie"]:
+            messagebox.showinfo("需要扫码授权", "所选官网类活动需要网页登录授权，请先点击“扫码授权”。", parent=window)
+            return
         try:
-            extra = json.loads(editor.get("1.0", "end"))
-            if not isinstance(extra, dict) or set(extra) != set(keys):
-                raise ValueError("高级配置需保留原有配置键")
-            updated = {**config, **extra, "enabled": [key for key, variable in variables.items() if variable.get()],
-                       "lottery": lottery.get(), "recheckin": recheckin.get(),
-                       **{key: variable.get().strip() for key, variable in fields.items()}}
-            for key, pair in oauth_fields.items():
-                updated[key] = {field: variable.get().strip() for field, variable in zip(("openid", "access_token"), pair)}
-                if not any(updated[key].values()):
-                    updated[key] = {}
-            save_config(directory, updated)
+            saved = load_config(directory)
+            save_config(directory, {**saved, "enabled": selected,
+                                    "lottery": lottery.get(), "recheckin": recheckin.get()})
+            if on_change:
+                on_change()
             window.destroy()
         except (ValueError, OSError) as error:
             messagebox.showerror("保存失败", str(error), parent=window)
-    footer = ttk.Frame(window, padding=(24, 0, 24, 16))
-    footer.pack(fill="x")
+
     ttk.Button(footer, text="保存活动配置", style="Primary.TButton", command=save).pack(side="right")
     ttk.Button(footer, text="取消", command=window.destroy).pack(side="right", padx=8)
     window.bind("<Escape>", lambda event: window.destroy())
+    window.deiconify()
     window.grab_set()
     window.focus_set()

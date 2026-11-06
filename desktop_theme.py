@@ -132,3 +132,18 @@ def fit_table_columns(tree):
             allocated += target
 
     tree.bind("<Configure>", resize, add="+")
+
+
+def create_checkbox_images(root):
+    """首页和活动选择共用 24px 勾选图像。"""
+    images = []
+    for checked in (False, True):
+        image = tk.PhotoImage(master=root, width=24, height=24)
+        image.put(COLORS["accent"] if checked else "#8B919A", to=(2, 2, 22, 22))
+        image.put(COLORS["accent"] if checked else COLORS["surface"], to=(4, 4, 20, 20))
+        if checked:
+            for x, y in ((6, 11), (7, 12), (8, 13), (9, 14), (10, 13), (11, 12),
+                         (12, 11), (13, 10), (14, 9), (15, 8), (16, 7)):
+                image.put("#FFFFFF", to=(x, y, x + 2, y + 3))
+        images.append(image)
+    return images

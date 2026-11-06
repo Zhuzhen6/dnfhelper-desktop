@@ -2,7 +2,8 @@
 from tkinter import StringVar, ttk
 
 from desktop_storage import read_json
-from desktop_theme import fit_table_columns
+from activity_config import load_config
+from activity_tasks import activity_task_rows
 
 
 def read_account_snapshot(directory):
@@ -24,22 +25,28 @@ class AccountDetails:
         self.identity = StringVar(value="选择一个账户，查看角色与任务结果。")
         ttk.Label(self.frame, textvariable=self.identity, style="Hint.TLabel", wraplength=440,
                   justify="left").pack(fill="x", pady=(12, 16))
-        ttk.Label(self.frame, text="每日任务详情", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(self.frame, text="已选活动任务详情", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
+        self.note = StringVar(value="选择账户后自动刷新任务详情。")
+        ttk.Label(self.frame, textvariable=self.note, style="Hint.TLabel", wraplength=440).pack(
+            side="bottom", fill="x", pady=(12, 0))
         table = ttk.Frame(self.frame, style="Surface.TFrame")
         table.pack(fill="both", expand=True)
-        columns = ("name", "my_exp", "my_status", "partner_exp", "partner_status")
-        self.tasks = ttk.Treeview(table, columns=columns, show="headings", height=7)
+        columns = ("my_exp", "my_status", "partner_exp", "partner_status")
+        style = ttk.Style(parent)
+        style.configure("ActivityTasks.Treeview.Heading", padding=(4, 10))
+        self.tasks = ttk.Treeview(table, columns=columns, show="tree headings", height=7,
+                                  style="ActivityTasks.Treeview")
+        self.tasks.heading("#0", text="活动 / 任务", anchor="w")
+        self.tasks.column("#0", width=200, minwidth=120, stretch=True)
+        self.tasks.tag_configure("activity", background="#EDF3FA", foreground="#1D1D1F")
         self.tasks.tag_configure("done", foreground="#1E6B50")
         self.tasks.tag_configure("pending", foreground="#A36800")
         self.tasks.tag_configure("unfinished", foreground="#73777D")
-        for key, title, width in zip(columns, ("任务名称", "我的经验", "我的状态", "队友经验", "队友状态"),
-                                     (180, 70, 70, 70, 70)):
+        for key, title, width in zip(columns, ("我的经验", "我的状态", "队友经验", "队友状态"),
+                                     (70, 70, 70, 70)):
             self.tasks.heading(key, text=title, anchor="w")
-            self.tasks.column(key, width=width, minwidth=width, stretch=key == "name")
-        fit_table_columns(self.tasks)
+            self.tasks.column(key, width=width, minwidth=width, stretch=False)
         self.tasks.pack(fill="both", expand=True)
-        self.note = StringVar(value="选择账户后自动刷新任务详情。")
-        ttk.Label(self.frame, textvariable=self.note, style="Hint.TLabel", wraplength=440).pack(fill="x", pady=(12, 0))
 
     def show(self, account, directory=None):
         self.tasks.delete(*self.tasks.get_children())
@@ -57,14 +64,23 @@ class AccountDetails:
         expired = result.get("auth_expired") or any(
             "-30003" in str(message) or "auth verification failed" in str(message)
             for message in result.get("pending", []))
-        for task in result.get("tasks", []):
-            status = task.get("my_status", "未知")
-            tag = "done" if status == "已领取" else "pending" if status == "待领取" else "unfinished"
-            self.tasks.insert("", "end", tags=(tag,), values=(task.get("name", "任务"), task.get("my_exp", "—"),
-                              task.get("my_status", "未知"), task.get("partner_exp", "—"),
-                              task.get("partner_status", "未知")))
+        try:
+            config = load_config(directory)
+            rows = activity_task_rows(config, result)
+            group = ""
+            for values in rows:
+                status = values[2]
+                if status == "活动":
+                    group = self.tasks.insert("", "end", text=values[0], open=True,
+                                              tags=("activity",), values=("", "", "", ""))
+                    continue
+                tag = "done" if status in ("已领取", "完成") else "pending" if status in ("待领取", "待处理") else "unfinished"
+                self.tasks.insert(group, "end", text=values[0], tags=(tag,), values=values[1:])
+        except (OSError, ValueError):
+            self.note.set("活动配置读取失败，请重新保存活动配置。")
+            return
         pending = len(result.get("pending", []))
         self.note.set(f"更新于 {result.get('tasks_updated_at', '未知')}，{pending} 项待处理。"
-                      if "tasks" in result else "选择账户后自动查询任务详情，请稍候。")
+                      if "tasks" in result else "已列出所选活动计划；待查询不代表已完成。")
         if expired:
             self.note.set("助手登录已过期，请右键账户选择“扫码更新登录”。")
