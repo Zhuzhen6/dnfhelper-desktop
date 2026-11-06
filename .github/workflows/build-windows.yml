@@ -36,6 +36,11 @@ jobs:
           import tkinter as tk
           sys.path.insert(0, str(Path.cwd()))
           from desktop_storage import read_json, write_json
+          from activity_config import default_config, validate_config
+          from activity_catalog import available_activities
+          from activity_daoju import DaojuActivity
+          from activity_http import ActivityHttp, require_cookie_identity
+          from datetime import datetime
           assert compileall.compile_dir('.', quiet=1, rx=__import__('re').compile(r'[/\\]\.git[/\\]'))
           with tempfile.TemporaryDirectory() as folder:
               path = Path(folder) / 'session.json'
@@ -44,12 +49,30 @@ jobs:
               assert path.read_bytes().startswith(b'DPAPI\n')
               assert b'offline-placeholder' not in path.read_bytes()
               assert read_json(path) == session
+              config = validate_config(default_config())
+              write_json(Path(folder) / 'activities.json', config, secret=True)
+              assert read_json(Path(folder) / 'activities.json') == config
+          assert 'assistant_event' not in available_activities(datetime(2026, 11, 9))
+          assert 'jinggai' not in available_activities(datetime(2026, 11, 16))
+          require_cookie_identity('uin=o00100; skey=offline;', '100')
+          http = ActivityHttp()
+          config = {**default_config(), 'web_cookie': 'uin=o00100; skey=offline;'}
+          assert len(DaojuActivity(http, {'uin': '100'}, config).params()['sDjcSign']) == 512
+          http.session.close()
           root = tk.Tk()
           root.withdraw()
+          from desktop_app import DesktopApp
+          from activity_dialog import show_activity_dialog
+          with tempfile.TemporaryDirectory() as folder:
+              directory = Path(folder)
+              app = DesktopApp(root, directory, [])
+              show_activity_dialog(root, directory, '离线界面检查')
+              root.update()
+              assert len(root.winfo_children()) > 1
           root.destroy()
           print('语法、Tk 和 Windows DPAPI 检查通过')
       - name: 生成单文件 exe
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests desktop.py
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests --collect-all tzdata desktop.py
       - name: 检查 exe 窗口启动
         shell: pwsh
         run: |
@@ -74,7 +97,38 @@ jobs:
           }
           Copy-Item LICENSE dist\LICENSE.txt
           Copy-Item DESKTOP.md dist\DESKTOP.md
+          Copy-Item ACTIVITY_GUIDE.md dist\ACTIVITY_GUIDE.md
+          Copy-Item THIRD_PARTY_NOTICES.md dist\THIRD_PARTY_NOTICES.md
           Get-FileHash dist\DNFHelperDesktop.exe -Algorithm SHA256 | Format-List
+      - name: 检查 exe 独立任务进程与配置加密
+        shell: pwsh
+        run: |
+          $accountPath = Join-Path $env:RUNNER_TEMP 'dnf-offline-account'
+          $env:DNF_OFFLINE_ACCOUNT = $accountPath
+          @'
+          import os
+          from pathlib import Path
+          from desktop_storage import write_json
+          from activity_config import default_config, save_config
+          folder = Path(os.environ['DNF_OFFLINE_ACCOUNT'])
+          write_json(folder / 'session.json', {'uin':'100', 'userId':'200', 'token':'offline-only'}, secret=True)
+          save_config(folder, {**default_config(), 'enabled': []})
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw '离线账户准备失败' }
+          $worker = Start-Process -FilePath .\dist\DNFHelperDesktop.exe -ArgumentList @('--worker', $accountPath, 'check') -Wait -PassThru
+          if ($worker.ExitCode -ne 0) { throw 'exe 独立任务进程失败' }
+          @'
+          import os
+          from pathlib import Path
+          from desktop_storage import read_json
+          folder = Path(os.environ['DNF_OFFLINE_ACCOUNT'])
+          path = folder / 'result.json'
+          assert path.read_bytes().startswith(b'DPAPI\n')
+          result = read_json(path)
+          assert result['activities'] == [] and result['pending'] == []
+          print('独立任务进程与加密结果检查通过，未执行网络活动')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw '任务结果校验失败' }
       - name: 保存打包产物
         uses: actions/upload-artifact@v4
         with:
@@ -83,5 +137,7 @@ jobs:
             dist/DNFHelperDesktop.exe
             dist/LICENSE.txt
             dist/DESKTOP.md
+            dist/ACTIVITY_GUIDE.md
+            dist/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
           retention-days: 14

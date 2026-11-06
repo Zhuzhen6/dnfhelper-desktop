@@ -5,6 +5,7 @@ DNF 助手 App「编年有礼」活动接口自动化。
 ## Windows 桌面版
 
 新增多账户管理、QQ 扫码窗口、手动执行、每日定时和任务日志。
+v0.2.0 增加当前有效的道聚城、官网活动、论坛、小酱油、心悦和编年史补充功能；按账户配置活动与授权，过期活动自动隐藏。见 [活动配置指南](ACTIVITY_GUIDE.md) 与 [来源署名](THIRD_PARTY_NOTICES.md)。
 在 Windows 安装 Python 3.12 x64 后双击 `build_windows.bat`，输出 `dist/DNFHelperDesktop.exe`。
 具体使用、数据保护和定时规则见 [桌面版说明](DESKTOP.md)。
 

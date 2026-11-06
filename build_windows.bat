@@ -13,10 +13,12 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 .venv-windows\Scripts\python.exe -m compileall -q desktop.py desktop_app.py desktop_worker.py desktop_storage.py desktop_schedule.py
 if errorlevel 1 goto failed
-.venv-windows\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests desktop.py
+.venv-windows\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name DNFHelperDesktop --collect-all requests --collect-all tzdata desktop.py
 if errorlevel 1 goto failed
 copy /y LICENSE dist\LICENSE.txt >nul
 copy /y DESKTOP.md dist\DESKTOP.md >nul
+copy /y ACTIVITY_GUIDE.md dist\ACTIVITY_GUIDE.md >nul
+copy /y THIRD_PARTY_NOTICES.md dist\THIRD_PARTY_NOTICES.md >nul
 echo Ready: dist\DNFHelperDesktop.exe
 pause
 exit /b 0

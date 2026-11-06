@@ -67,6 +67,7 @@ class DesktopApp:
         toolbar = ttk.Frame(frame)
         toolbar.pack(fill="x", pady=(0, 10))
         for label, command in (("添加账户", self.add_account), ("编辑", self.edit_account),
+                               ("活动配置", self.configure_activities),
                                ("扫码登录", lambda: self.enqueue_selected("login")),
                                ("导入登录态", self.import_session),
                                ("删除", self.delete_account)):
@@ -193,6 +194,16 @@ class DesktopApp:
         account = self.one_account()
         if account:
             self.account_dialog(account)
+
+    def configure_activities(self):
+        account = self.one_account()
+        if not account:
+            return
+        if self.is_busy(account):
+            messagebox.showinfo("账户忙碌", "请等待任务结束或停止后再修改活动", parent=self.root)
+            return
+        from activity_dialog import show_activity_dialog
+        show_activity_dialog(self.root, self.account_path(account), account["name"])
 
     def delete_account(self):
         account = self.one_account()
@@ -324,7 +335,7 @@ class DesktopApp:
                 self.read_output()
                 self.show_qr()
                 code = self.process.poll()
-                limit = 300 if self.current[1] == "login" else 1200
+                limit = 300 if self.current[1] == "login" else 7200
                 if code is None and time.monotonic() - self.started > limit:
                     self.log("执行超时，正在停止；可检查网络后重新执行")
                     self.stop()

@@ -18,14 +18,21 @@ class SafeOutput:
         message = re.sub(
             r"(?i)((?:access_?token|token|openid|appOpenid|pay_token|pfkey|qrsig)"
             r"[\"']?\s*[:=]\s*[\"']?)[^\s,\"'}]+", r"\1[已隐藏]", message)
-        try:
-            session = read_json(self.directory / "session.json")
-            for key in ("token", "accessToken", "appOpenid"):
-                value = str(session.get(key) or "")
-                if value:
-                    message = message.replace(value, "[已隐藏]")
-        except (OSError, ValueError):
-            pass
+        def redact(value, key=""):
+            nonlocal message
+            if isinstance(value, dict):
+                for field, nested in value.items():
+                    redact(nested, field)
+            elif isinstance(value, list):
+                for nested in value:
+                    redact(nested, key)
+            elif isinstance(value, str) and value and any(word in key.lower() for word in ("token", "cookie", "openid", "body_hex")):
+                message = message.replace(value, "[已隐藏]")
+        for filename in ("session.json", "activities.json"):
+            try:
+                redact(read_json(self.directory / filename))
+            except (OSError, ValueError):
+                pass
         self.stream.write(message)
         self.stream.flush()
         return len(message)
@@ -54,9 +61,10 @@ def run_worker(directory, action):
                 return login_new_account.main()
             if action not in ("run", "check"):
                 raise ValueError("不支持的操作")
-            import daily
-            summary = daily.run(check_only=action == "check")
-            write_json(directory / "result.json", summary)
+            from activity_runner import run_activities
+            summary = run_activities(directory, check_only=action == "check")
+            # 接口明细可能回显凭证，结果与日志一样作为敏感文件保存。
+            write_json(directory / "result.json", summary, secret=True)
             print(f"经验：{summary.get('exp_total')}，等级：{summary.get('level', '未知')}")
             for pending in summary["pending"]:
                 print(pending)

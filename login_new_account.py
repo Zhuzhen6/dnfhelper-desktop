@@ -133,6 +133,7 @@ def main() -> int:
                 "roleJob": m.get("roleJob", ""),
                 "roleLevel": str(m.get("level", "")),
                 "areaName": m.get("areaName", ""),
+                "areaId": str(m.get("areaId", "")),
             })
             role_note = (f"{m.get('roleName')} {m.get('serverName')} "
                          f"Lv.{m.get('level')}（共 {len(roles)} 个角色）")
