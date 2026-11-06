@@ -116,7 +116,10 @@ jobs:
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw '离线账户准备失败' }
           $worker = Start-Process -FilePath .\dist\DNFHelperDesktop.exe -ArgumentList @('--worker', $accountPath, 'check') -Wait -PassThru
-          if ($worker.ExitCode -ne 0) { throw 'exe 独立任务进程失败' }
+          if ($worker.ExitCode -ne 0) {
+            Get-Content (Join-Path $accountPath 'current.log') -ErrorAction SilentlyContinue
+            throw "exe 独立任务进程失败，退出码：$($worker.ExitCode)"
+          }
           @'
           import os
           from pathlib import Path
