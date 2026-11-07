@@ -103,7 +103,7 @@ def run_step(summary, label, callback, quiet_success=False):
         if not quiet_success:
             print(f"[{label}] {status}", flush=True)
         return result
-    except (ActivityError, requests.RequestException, ValueError, KeyError, TypeError, IndexError, SystemExit) as error:
+    except (ActivityError, requests.RequestException, OSError, ValueError, KeyError, TypeError, IndexError, SystemExit) as error:
         if isinstance(error, AssistantAuthError):
             summary["auth_expired"] = True
         message = str(error) if isinstance(error, ActivityError) else f"{type(error).__name__}，请检查配置、网络或接口版本"

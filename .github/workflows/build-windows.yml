@@ -43,7 +43,7 @@ jobs:
           from unittest.mock import patch
           from desktop_update_install import apply_update
           from desktop_update import gitee_repository, VERSION
-          assert VERSION == '0.4.1'
+          assert VERSION == '0.4.2'
           assert gitee_repository() == 'sweetzz/dnfzhu-shi-ou'
           with tempfile.TemporaryDirectory() as folder:
               target = Path(folder) / 'DNFHelperDesktop.exe'
@@ -90,6 +90,7 @@ jobs:
           application.refresh = Mock()
           application.log = Mock()
           application.statuses = {}
+          application.schedule_retry_after = {}
           process = Mock()
           def delayed_launch(*args):
               sleep(0.5)
@@ -110,6 +111,8 @@ jobs:
           with tempfile.TemporaryDirectory() as folder:
               directory = Path(folder)
               app = DesktopApp(root, directory, [])
+              from tkinter import ttk
+              assert 'Frame.border' in str(ttk.Style(root).layout('Panel.TFrame'))
               assert not hasattr(app, 'stop_button')
               assert not hasattr(app, 'check_button')
               assert len(app.details.tasks['columns']) == 4

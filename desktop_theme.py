@@ -47,10 +47,8 @@ def install_rounded_styles(root, style):
         layout = [(element, {"sticky": "nsew", "children": [
             ("Button.padding", {"sticky": "nsew", "children": [("Button.label", {"sticky": "nsew"})]})]})]
         style.layout("TButton" if name == "Secondary" else "Primary.TButton", layout)
-    panel = rounded_image(root, COLORS["surface"], radius=12)
-    images.append(panel)
-    style.element_create("Surface.rounded", "image", panel, border=14, padding=0, sticky="nsew")
-    style.layout("Panel.TFrame", [("Surface.rounded", {"sticky": "nsew"})])
+    # 大面板使用原生填充，避免 4px 图块平铺产生数万次重绘，拖动时阻塞主线程。
+    style.layout("Panel.TFrame", [("Frame.border", {"sticky": "nsew"})])
     # PhotoImage 需保留 Python 引用，防止窗口运行时被回收。
     root.theme_images = images
 
@@ -70,7 +68,7 @@ def apply_theme(root):
     install_rounded_styles(root, style)
     style.configure("TFrame", background=COLORS["background"])
     style.configure("Surface.TFrame", background=COLORS["surface"])
-    style.configure("Panel.TFrame", background=COLORS["background"], borderwidth=0, relief="flat")
+    style.configure("Panel.TFrame", background=COLORS["surface"], borderwidth=0, relief="flat")
     style.configure("TLabel", background=COLORS["background"])
     style.configure("Title.TLabel", font=(family, 23, "bold"))
     style.configure("Muted.TLabel", foreground=COLORS["muted"])
@@ -120,8 +118,13 @@ def fit_table_columns(tree):
     """隐藏滚动条后按比例分配宽度，保证右侧列仍在窗口内。"""
     columns = tuple(tree["columns"])
     widths = [tree.column(column, "width") for column in columns]
+    previous_width = None
 
     def resize(event):
+        nonlocal previous_width
+        if event.width == previous_width:
+            return
+        previous_width = event.width
         tree_width = tree.column("#0", "width") if "tree" in str(tree["show"]) else 0
         available = max(1, event.width - tree_width - 2)
         total = sum(widths)

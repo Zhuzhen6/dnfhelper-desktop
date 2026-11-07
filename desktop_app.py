@@ -62,6 +62,7 @@ class DesktopApp:
         self.checked_accounts = set()
         self.updating = False
         self.details_requested_at = {}
+        self.schedule_retry_after = {}
         self.selected_identifier = None
         self.account_snapshots = {}
         self.closing = False
@@ -392,7 +393,7 @@ class DesktopApp:
     def add_account(self):
         if self.updating:
             return
-        if self.process or self.queue:
+        if self.current or self.process or self.launch_future or self.queue:
             messagebox.showinfo("任务进行中", "请等待当前任务结束，再扫码添加账户。", parent=self.root)
             return
         self.adding_account = {"id": uuid.uuid4().hex, "name": "新账户", "enabled": False, "time": "09:00"}
@@ -507,9 +508,6 @@ class DesktopApp:
             return
         account, action = self.queue.popleft()
         try:
-            if action == "run" and is_due(account, datetime.now()):
-                account["last_scheduled"] = datetime.now().date().isoformat()
-                self.persist()
             self.current = (account, action)
             self.started = time.monotonic()
             self.offset = 0
@@ -520,6 +518,7 @@ class DesktopApp:
             self.refresh()
         except (OSError, RuntimeError) as error:
             self.current = None
+            self.schedule_retry_after[account["id"]] = time.monotonic() + 60
             self.statuses[account["id"]] = "启动失败"
             self.log(f"启动失败：{type(error).__name__}")
             self.finish_account_addition(account, False)
@@ -540,9 +539,16 @@ class DesktopApp:
                 self.log(f"{account['name']}：{self.statuses[account['id']]}")
         except OSError as error:
             self.process = self.current = None
+            self.schedule_retry_after[account["id"]] = time.monotonic() + 60
             self.statuses[account["id"]] = "启动失败"
             self.log(f"启动失败：{type(error).__name__}")
             self.finish_account_addition(account, False)
+        if self.process and not self.cancelled and not self.closing and action == "run" and is_due(account, datetime.now()):
+            account["last_scheduled"] = datetime.now().date().isoformat()
+            try:
+                self.persist()
+            except OSError:
+                self.log("定时执行记录保存失败，重启后可能再次执行，请检查文件权限。")
         if not self.closing:
             self.refresh()
 
@@ -629,7 +635,8 @@ class DesktopApp:
                             self.enqueue(target, "check")
             now = datetime.now()
             for account in self.accounts:
-                if is_due(account, now) and not self.is_busy(account):
+                if (not self.updating and is_due(account, now) and not self.is_busy(account)
+                        and time.monotonic() >= self.schedule_retry_after.get(account["id"], 0)):
                     if (self.account_path(account) / "session.json").exists():
                         self.enqueue(account, "run")
             self.start_next()

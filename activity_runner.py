@@ -63,7 +63,8 @@ def run_activities(directory, check_only=False, details_only=False):
                     IdeActivity(http, key, url, session, config).run(summary, check_only)
             run_step(summary, "只读查询任务详情" if details_only else name, execute, quiet_success=details_only)
             if not details_only:
-                records = [{"action": item["action"], "result": item["result"]}
+                records = [{"action": item["action"],
+                            "result": item["result"] if isinstance(item["result"], str) else "完成"}
                            for item in summary["actions"][action_start:]]
                 records.extend({"action": message, "result": "待处理"} for message in summary["pending"][before:])
                 summary.setdefault("activity_tasks", {})[key] = records

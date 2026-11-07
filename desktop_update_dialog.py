@@ -45,6 +45,14 @@ def show_update_dialog(app):
         except Exception as error:
             events.put(("error", "连接或下载失败，请检查网络后重试。" if not isinstance(error, ValueError) else str(error)))
 
+    def launch_installer(downloaded):
+        # exe 复制和进程创建可能触发杀毒扫描，不能放在 Tk 主线程。
+        helper = downloaded.parent / "DNFHelperUpdater.exe"
+        shutil.copyfile(sys.executable, helper)
+        environment = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
+        subprocess.Popen([str(helper), "--apply-update", str(os.getpid()), sys.executable, str(downloaded)],
+                         creationflags=subprocess.CREATE_NO_WINDOW, env=environment)
+
     def install():
         if state["busy"]:
             return
@@ -90,18 +98,13 @@ def show_update_dialog(app):
             notes.configure(state="disabled")
             button.configure(state="normal" if newer else "disabled")
         elif kind == "download":
-            try:
-                helper = value.parent / "DNFHelperUpdater.exe"
-                shutil.copyfile(sys.executable, helper)
-                environment = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
-                subprocess.Popen([str(helper), "--apply-update", str(os.getpid()), sys.executable, str(value)],
-                                 creationflags=subprocess.CREATE_NO_WINDOW, env=environment)
-                app.root.destroy()
-                return
-            except OSError:
-                app.updating = False
-                status.set("无法启动更新程序，请从 Releases 手动下载。")
-                button.configure(state="normal")
+            state["busy"] = True
+            status.set("校验完成，正在启动更新程序…")
+            threading.Thread(target=background, args=(lambda: launch_installer(value), "installer"), daemon=True).start()
+        elif kind == "installer":
+            app.worker_launcher.shutdown(wait=False)
+            app.root.destroy()
+            return
         else:
             app.updating = False
             status.set(value)

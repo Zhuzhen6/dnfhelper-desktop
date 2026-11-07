@@ -150,6 +150,11 @@ def main() -> int:
         print("\n--dry-run，未写 session.json")
         return 0
 
+    if os.path.exists(SESS):
+        saved = read_json(SESS)
+        if str(saved.get("uin", "")).lstrip("o0") != str(sess["uin"]).lstrip("o0"):
+            print("扫码 QQ 与当前账户不一致，已保留原登录态。请使用“扫码添加”添加其他 QQ。")
+            return 3
     write_json(SESS, sess, secret=True)
     print(f"\n已安全保存登录态：{SESS}，请勿外传")
     print("下一步：python daily.py --check")
