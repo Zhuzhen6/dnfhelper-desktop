@@ -177,7 +177,10 @@ class DesktopApp:
                 session, result = read_account_snapshot(directory)
                 try:
                     settings = load_config(directory)
-                    web_login = "已授权" if settings["web_cookie"] else "未授权"
+                    from hashlib import sha256
+                    rejected = (result.get("web_auth_expired") and result.get("web_auth_fingerprint")
+                                == sha256(settings["web_cookie"].encode()).hexdigest())
+                    web_login = "已失效，请扫码" if rejected else "已保存，待验证" if settings["web_cookie"] else "未授权"
                 except (OSError, ValueError):
                     web_login = "读取失败"
                 self.account_snapshots[account["id"]] = (signature, session, result, web_login)

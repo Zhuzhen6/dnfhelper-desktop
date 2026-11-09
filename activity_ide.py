@@ -2,7 +2,7 @@
 from urllib.parse import quote
 
 from activity_catalog import beijing_now
-from activity_http import ActivityError, require_cookie_identity, run_step
+from activity_http import ActivityError, WebAuthError, require_cookie_identity, run_step
 
 
 IDE_ACTIVITIES = {
@@ -26,8 +26,13 @@ class IdeActivity:
         payload = {"iChartId": str(flow), "iSubChartId": str(flow),
                    "sIdeToken": descriptor["sIdeToken"], "e_code": "0", "g_code": "0",
                    "eas_url": quote(self.url, safe=""), **extra}
-        return self.http.json("POST", "https://comm.ams.game.qq.com/ide/", data=payload,
-                              headers={"Cookie": self.cookie, "Referer": self.url})
+        try:
+            return self.http.json("POST", "https://comm.ams.game.qq.com/ide/", data=payload,
+                                  headers={"Cookie": self.cookie, "Referer": self.url})
+        except ActivityError as error:
+            if error.code == "101":
+                raise WebAuthError("网页登录授权已失效，请在活动配置中扫码授权后重试", error.code) from error
+            raise
 
     def check_role(self):
         binding = next((item for item in self.description.get("default_tpls", []) if item.get("tpl") == "bind_area"), None)

@@ -58,7 +58,7 @@ def show_activity_dialog(parent, directory, name, on_change=None):
         if not config["web_cookie"]:
             return "○ 未授权 · 官网类活动需扫码授权"
         updated = config["web_authorized_at"]
-        return "✓ 网页已授权" + (f" · {updated}" if updated else " · 已保存")
+        return "✓ 授权已保存，待验证" + (f" · {updated}" if updated else " · 已保存")
 
     authorization_status = tk.StringVar(value=authorization_text())
     authorization = ttk.Frame(panel, style="Surface.TFrame")

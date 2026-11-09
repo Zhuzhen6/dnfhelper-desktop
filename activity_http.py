@@ -13,10 +13,17 @@ ALLOWED_HOSTS = {"comm.ams.game.qq.com", "dzhu.qq.com"}
 
 class ActivityError(Exception):
     """可以直接向用户展示的业务错误。"""
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = str(code) if code is not None else None
 
 
 class AssistantAuthError(ActivityError):
     """助手登录已失效，需要重新扫码。"""
+
+
+class WebAuthError(ActivityError):
+    """官网凭证已被服务器拒绝。"""
 
 
 def parse_json(text):
@@ -57,7 +64,7 @@ def ensure_success(response):
         if field in response and isinstance(response[field], (int, str)):
             if str(response[field]) not in ("0", "200"):
                 message = response.get("msg") or response.get("sMsg") or response.get("returnMsg") or "未满足领取条件"
-                raise ActivityError(f"接口返回 {response[field]}：{str(message)[:180]}")
+                raise ActivityError(f"接口返回 {response[field]}：{str(message)[:180]}", response[field])
     for field in ("flowRet", "modRet"):
         if isinstance(response.get(field), dict):
             ensure_success(response[field])
@@ -106,6 +113,8 @@ def run_step(summary, label, callback, quiet_success=False):
     except (ActivityError, requests.RequestException, OSError, ValueError, KeyError, TypeError, IndexError, SystemExit) as error:
         if isinstance(error, AssistantAuthError):
             summary["auth_expired"] = True
+        if isinstance(error, WebAuthError):
+            summary["web_auth_expired"] = True
         message = str(error) if isinstance(error, ActivityError) else f"{type(error).__name__}，请检查配置、网络或接口版本"
         summary["pending"].append(f"{label}：{message}")
         print(f"[{label}] {message}", flush=True)

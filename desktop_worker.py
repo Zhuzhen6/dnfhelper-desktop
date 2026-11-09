@@ -76,6 +76,8 @@ def run_worker(directory, action):
                 try:
                     previous = read_json(directory / "result.json")
                     summary["activity_tasks"] = previous.get("activity_tasks", {})
+                    if previous.get("web_auth_fingerprint") == summary["web_auth_fingerprint"]:
+                        summary["web_auth_expired"] = previous.get("web_auth_expired", False)
                 except (OSError, ValueError):
                     pass
             # 接口明细可能回显凭证，结果与日志一样作为敏感文件保存。

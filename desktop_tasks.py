@@ -10,9 +10,6 @@ def task_status(value, action_id):
 def normalize_tasks(tasks):
     rows = []
     for task in tasks:
-        # 047 是上游已确认的无效任务，不作为可执行任务显示。
-        if str(task.get("mActionId", "")) == "047":
-            continue
         rows.append({
             "id": str(task.get("mActionId") or task.get("pActionId") or ""),
             "name": str(task.get("name") or "未命名任务"),

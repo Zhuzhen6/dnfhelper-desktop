@@ -6,7 +6,7 @@
 ----
   1. 签到礼包：查 getmonthsigngifts，按 signStatus / giftStatus 分别处理。
   2. 任务：合并两套任务视图，按状态处理：
-       1 = 已领取 → 跳过
+       1 = 已领取 → 不重复领取
        2 = 待领取 → claim-task 领经验
        0 = 未完成 → 按 actionId 走对应的完成方式
   3. 基础礼包：一键 claim-basic-all（需账号已绑定游戏角色）
@@ -19,9 +19,9 @@
   049 查看排行榜    actionreport → 状态翻 2 → claim（只在 App 视图里出现）
   043 浏览1篇内容   /moment/detail 真开一篇动态 → 状态翻 2 → claim
   045 进圈子详情页  circle/detail + momentlist → 状态翻 2 → claim
-  047 浏览话题      脏数据，claim 报 -70007，跳过
+  047 浏览话题      尝试领取，展示服务端实际结果
   009               尝试领取，由服务端校验游戏通关条件
-  005               需游戏服侧真实登录事件
+  005               尝试领取，由服务端校验游戏登录条件
 
 用法
 ----
@@ -35,13 +35,7 @@ import time
 
 import peak_client as pc
 import native_client as nc
-
-# 不可能用接口完成的任务：actionId -> 原因
-SKIP_TASKS = {
-    "047": "非法任务（-70007，App 也不显示）",
-    "005": "需登录游戏",
-}
-
+from activity_http import ActivityError
 
 def task_snapshot() -> list:
     """默认视图（SESSION 全量参数）。"""
@@ -140,7 +134,7 @@ def run(check_only: bool = False) -> dict:
 
                 if st.get("signStatus") == 1:
                     if st.get("giftStatus") == 1:
-                        log("claim-sign", "skip（今日已领）")
+                        log("claim-sign", "今日已领取")
                     else:
                         r = pc.claim_sign()
                         log("claim-sign", r)
@@ -151,7 +145,7 @@ def run(check_only: bool = False) -> dict:
                                 "（基础礼包需绑定游戏角色）")
                 else:
                     summary["pending"].append(
-                        "签到未成功（埋点后等待 20 秒 signStatus 仍为 0）")
+                        "签到状态待确认（服务端尚未更新，将在任务结束后复查）")
         except Exception as ex:  # noqa: BLE001
             summary["pending"].append(f"签到流程异常：{ex}")
 
@@ -160,9 +154,6 @@ def run(check_only: bool = False) -> dict:
         aid, name = t["mActionId"], t.get("name", "")
         st = int(t.get("mStatus", -1))
         if st == 1:
-            continue
-        if aid in SKIP_TASKS:
-            summary["pending"].append(f"{aid} {name}：跳过（{SKIP_TASKS[aid]}）")
             continue
         if check_only:
             summary["pending"].append(f"{aid} {name}：mStatus={st}（check 模式未动）")
@@ -174,9 +165,9 @@ def run(check_only: bool = False) -> dict:
                 if aid == "001":
                     # 服务端对 001 不校验完成状态，0 也能直接领
                     log("claim-task-001", pc.claim_task("001"))
-                elif aid == "009":
+                elif aid in ("005", "009", "047"):
                     # 由领奖接口校验真实通关条件，不用浏览上报替代游戏行为。
-                    log("claim-task-009", pc.claim_task("009"))
+                    log(f"claim-task-{aid}", pc.claim_task(aid))
                 elif aid == "008":
                     rep = pc.report_action("008")
                     log("report-action-008", rep)
@@ -243,10 +234,28 @@ def run(check_only: bool = False) -> dict:
         except Exception as ex:  # noqa: BLE001
             summary["pending"].append(f"{aid} {name}：异常 {ex}")
 
+    if not check_only and any(message.startswith("签到状态待确认") for message in summary["pending"]):
+        try:
+            final_sign = sign_state()
+            if final_sign.get("signStatus") == 1 or final_sign.get("giftStatus") == 1:
+                summary["pending"] = [message for message in summary["pending"]
+                                      if not message.startswith("签到状态待确认")]
+                if final_sign.get("giftStatus") != 1:
+                    log("claim-sign", pc.claim_sign())
+                else:
+                    log("claim-sign", "今日已领取")
+        except Exception as ex:
+            summary["pending"].append(f"签到复查异常：{ex}")
+
     # ---- 3. 基础礼包 ----
     if not check_only:
         try:
             log("claim-basic-all", pc.claim_basic_all())
+        except ActivityError as ex:
+            if ex.code == "200031":
+                log("claim-basic-all", "当前无可领取礼包")
+            else:
+                summary["pending"].append(f"claim-basic-all 异常：{ex}")
         except Exception as ex:  # noqa: BLE001
             summary["pending"].append(f"claim-basic-all 异常：{ex}")
 

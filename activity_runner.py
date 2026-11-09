@@ -5,6 +5,7 @@ from activity_http import ActivityError, ActivityHttp, run_step
 from desktop_storage import read_json
 from desktop_tasks import normalize_tasks
 from datetime import datetime
+from hashlib import sha256
 
 
 def run_activities(directory, check_only=False, details_only=False):
@@ -17,6 +18,7 @@ def run_activities(directory, check_only=False, details_only=False):
         raise ActivityError("助手登录态字段不完整，请重新扫码")
     http = ActivityHttp()
     summary = {"actions": [], "pending": [], "exp_total": None, "activities": []}
+    summary["web_auth_fingerprint"] = sha256(config["web_cookie"].encode()).hexdigest()
     catalog = available_activities()
     try:
         for key in catalog:

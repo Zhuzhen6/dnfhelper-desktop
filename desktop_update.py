@@ -7,7 +7,7 @@ from pathlib import Path
 
 import requests
 
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 REPOSITORY = "Zhuzhen6/dnfhelper-desktop"
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 SOURCE_FILE = Path(__file__).with_name("update_sources.json")

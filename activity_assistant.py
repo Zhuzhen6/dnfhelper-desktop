@@ -30,9 +30,7 @@ def run_assistant_event(http, session, config, summary, check_only):
             continue
         if int(task["status"]) == 0:
             if any(word in task["title"] for word in ("疲劳", "通关", "在线", "游戏登录")):
-                message = f"{task['title']}：需在游戏内完成，已跳过完成和领奖请求"
-                summary["pending"].append(message)
-                print(message, flush=True)
+                step(f"领取活动任务 {task['title']}", "task/pickupReward", taskId=task["id"])
                 continue
             if step(f"完成活动任务 {task['title']}", "task/done", taskId=task["id"]) is None:
                 continue

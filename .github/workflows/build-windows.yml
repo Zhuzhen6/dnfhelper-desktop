@@ -43,7 +43,7 @@ jobs:
           from unittest.mock import patch
           from desktop_update_install import apply_update
           from desktop_update import gitee_repository, VERSION
-          assert VERSION == '0.4.2'
+          assert VERSION == '0.4.3'
           assert gitee_repository() == 'sweetzz/dnfzhu-shi-ou'
           with tempfile.TemporaryDirectory() as folder:
               target = Path(folder) / 'DNFHelperDesktop.exe'
